@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "super-mario-sunshine-rl"
+version = "0.1.0"
+description = "Gymnasium scaffolding for a Super Mario Sunshine RL environment."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "gymnasium>=1.1",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[project.scripts]
+sms-rl = "sms_rl.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["sms_rl*"]
