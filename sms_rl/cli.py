@@ -1,33 +1,129 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
-from sms_rl.baselines import CenteringPolicy, RandomPolicy, run_episode
+from sms_rl.baselines import CenteringPolicy, ConstantPolicy, RandomPolicy, run_episode
 from sms_rl.config import EnvConfig
+from sms_rl.drivers.dolphin import (
+    CaptureConfig,
+    DolphinDriverConfig,
+    DolphinLaunchConfig,
+    DolphinWindowsDriver,
+    MemoryBindings,
+    MemoryFlagSpec,
+    MemoryValueSpec,
+)
 from sms_rl.envs.blooper_surfing import BlooperSurfingEnv
+
+
+def parse_address(value: str) -> int:
+    return int(value, 0)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run Blooper Surfing smoke tests.")
     parser.add_argument("--episodes", type=int, default=3)
+    parser.add_argument("--backend", choices=("mock", "dolphin"), default="mock")
     parser.add_argument(
         "--baseline",
-        choices=("random", "scripted"),
+        choices=("random", "scripted", "neutral"),
         default="scripted",
     )
+    parser.add_argument("--dolphin-exe", type=Path)
+    parser.add_argument("--game-path", type=Path)
+    parser.add_argument("--save-state", type=Path)
+    parser.add_argument("--window-title", default="Dolphin")
+    parser.add_argument("--capture-fps", type=int, default=60)
+    parser.add_argument("--progress-address", type=parse_address)
+    parser.add_argument(
+        "--progress-type",
+        choices=("byte", "word", "float", "double"),
+        default="float",
+    )
+    parser.add_argument("--finished-address", type=parse_address)
+    parser.add_argument(
+        "--finished-type",
+        choices=("byte", "word", "float", "double"),
+        default="byte",
+    )
+    parser.add_argument("--finished-value", type=float, default=1.0)
+    parser.add_argument("--failed-address", type=parse_address)
+    parser.add_argument(
+        "--failed-type",
+        choices=("byte", "word", "float", "double"),
+        default="byte",
+    )
+    parser.add_argument("--failed-value", type=float, default=1.0)
     return parser
+
+
+def build_env(args: argparse.Namespace) -> BlooperSurfingEnv:
+    if args.backend == "mock":
+        return BlooperSurfingEnv(config=EnvConfig())
+
+    if args.dolphin_exe is None or args.game_path is None:
+        raise SystemExit("--dolphin-exe and --game-path are required for --backend dolphin.")
+
+    memory = MemoryBindings(
+        progress=(
+            MemoryValueSpec(
+                base_address=args.progress_address,
+                value_type=args.progress_type,
+            )
+            if args.progress_address is not None
+            else None
+        ),
+        mission_finished=(
+            MemoryFlagSpec(
+                base_address=args.finished_address,
+                value_type=args.finished_type,
+                expected_value=args.finished_value,
+            )
+            if args.finished_address is not None
+            else None
+        ),
+        mission_failed=(
+            MemoryFlagSpec(
+                base_address=args.failed_address,
+                value_type=args.failed_type,
+                expected_value=args.failed_value,
+            )
+            if args.failed_address is not None
+            else None
+        ),
+    )
+    driver_config = DolphinDriverConfig(
+        launch=DolphinLaunchConfig(
+            dolphin_path=args.dolphin_exe,
+            game_path=args.game_path,
+            save_state_path=args.save_state,
+            window_title_contains=args.window_title,
+        ),
+        capture=CaptureConfig(target_fps=args.capture_fps),
+        memory=memory,
+    )
+    driver = DolphinWindowsDriver(driver_config)
+    return BlooperSurfingEnv(config=EnvConfig(), driver=driver)
+
+
+def build_policy(args: argparse.Namespace, env: BlooperSurfingEnv):
+    if args.baseline == "random":
+        return RandomPolicy(env.action_space.n, seed=0)
+    if args.baseline == "neutral":
+        return ConstantPolicy(action=1)
+    if args.backend == "dolphin":
+        raise SystemExit("The scripted baseline only supports the mock backend right now.")
+    return CenteringPolicy()
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
 
-    env = BlooperSurfingEnv(config=EnvConfig())
+    env = build_env(args)
     try:
-        if args.baseline == "random":
-            policy = RandomPolicy(env.action_space.n, seed=0)
-        else:
-            policy = CenteringPolicy()
+        policy = build_policy(args, env)
 
         for episode_idx in range(args.episodes):
             result = run_episode(env, policy)

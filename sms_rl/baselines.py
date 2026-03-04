@@ -11,6 +11,15 @@ class Policy(Protocol):
         """Return a discrete action for the current observation."""
 
 
+class ConstantPolicy:
+    def __init__(self, action: int) -> None:
+        self._action = action
+
+    def act(self, observation: np.ndarray) -> int:
+        del observation
+        return self._action
+
+
 class RandomPolicy:
     def __init__(self, action_count: int, seed: int | None = None) -> None:
         self._rng = np.random.default_rng(seed)
