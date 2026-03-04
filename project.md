@@ -20,18 +20,21 @@ Why this mission:
 ## Core Assumptions
 
 - Emulator: Dolphin on Windows
-- Training machine: Windows laptop with RTX 4050
-- Development machine: MacBook
-- Control/automation: SSH for non-visual work, RDP for visual inspection
+- Training and development machine: Windows laptop with RTX 4050
+- Platform support target for v0: Windows only
+- Control/automation: begin with the simplest reliable path, but do not assume keyboard input is sufficient long-term
 - First version observations: raw pixels
-- First version training scope: one fixed mission from one fixed savestate
+- First version environment logic: memory reads are allowed for reward, done, and reset signals
+- First version scope: one fixed mission from one fixed savestate
+- Initial implementation goal: robust environment loop plus random/scripted baselines before RL training
 
 ## Important Constraints
 
-- Raw pixels are acceptable for policy input in v1, but reward and reset logic may still need game-aware signals.
+- Raw pixels are acceptable for policy input in v1, but reward, done, and reset logic may still need game-aware signals.
 - Full-game Sunshine is out of scope for the initial version.
 - Fast and deterministic reset matters as much as model quality.
 - Action space should stay as small as possible at the start.
+- The environment API should be Gymnasium-compatible from the start.
 
 ## Environment Contract V0
 
@@ -63,9 +66,10 @@ Candidate action space:
 
 Open questions:
 
-- Does Blooper Surfing require analog-only steering or will coarse discretization work?
-- Are additional actions needed beyond steering?
+- Does Blooper Surfing require analog steering magnitude, or will coarse discretization work?
+- Are additional actions needed beyond steering for starting, recovery, or menu flow?
 - Is forward movement effectively automatic during the mission?
+- What is the most reliable control injection path into Dolphin on Windows?
 
 ### Reward
 
@@ -81,6 +85,7 @@ Risks:
 - Rewarding generic movement instead of true course progress
 - Reward shaping that encourages oscillation or unsafe shortcuts
 - Sparse reward if progress is not measured correctly
+- Purely visual reward logic may be slower and less reliable than using memory reads
 
 ### Done Conditions
 
@@ -102,6 +107,7 @@ Requirements:
 - reset must be consistent
 - reset must be fast enough for training
 - episode should start from the same initial state in v1
+- some small start-state nondeterminism should be expected and measured rather than assumed away
 
 ## Milestones
 
@@ -164,7 +170,7 @@ Exit criteria:
 
 Goal:
 
-- Compare random behavior against one or more simple scripted baselines
+- Compare random behavior against one or more simple baselines, starting with the easiest reliable option
 
 Exit criteria:
 
@@ -180,6 +186,11 @@ Exit criteria:
 
 - The trained policy performs better than random on repeated evaluations
 
+Recommended first algorithm once the environment is stable:
+
+- PPO rather than DQN
+- DQN is not the default choice here because the task uses image observations and partial observability
+
 ### 8. Scale and Improve
 
 Possible later work:
@@ -193,11 +204,13 @@ Possible later work:
 
 ## Risks and Unknowns
 
-- Analog steering may be harder to automate cleanly than expected.
+- Analog steering and controller injection may be harder to automate cleanly than expected.
 - Raw-pixel training may require more compute and training time than a structured-state approach.
 - Reset speed may be too slow without a good savestate workflow.
 - Dolphin scripting/integration may be the hardest part of the project.
 - Progress measurement may be difficult without some game-state access.
+- Window-focus-dependent input methods may be too flaky for unattended runs.
+- Frame capture throughput may become a bottleneck even before training starts.
 
 ## Guiding Principles
 
@@ -206,10 +219,17 @@ Possible later work:
 - Keep the first action space small.
 - Treat reward and reset correctness as first-class engineering problems.
 - Only scale complexity after the fixed mission loop is reliable.
+- Keep the environment framework-neutral enough to support Gymnasium-compatible tooling and later PPO training.
 
 ## Immediate Next Steps
 
 1. Choose the exact emulator integration path.
 2. Define the first action space precisely.
-3. Decide how progress, failure, and success will be detected in v1.
+3. Decide how progress, failure, and success will be detected in v1, with memory reads allowed if they are the fastest reliable option.
 4. Verify that Blooper Surfing Safari can be reset quickly from a savestate.
+5. Build the environment loop and baseline evaluation before attempting RL training.
+
+
+## Similar Project
+- The github repo below is similar in problem/solution, however it is coded for mario kart wii specifically so there might not be much carryover in the implementation details.
+https://github.com/VIPTankz/Wii-RL 
