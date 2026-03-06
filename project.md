@@ -229,6 +229,24 @@ Possible later work:
 4. Verify that Blooper Surfing Safari can be reset quickly from a savestate.
 5. Build the environment loop and baseline evaluation before attempting RL training.
 
+## Current Memory Bindings (Working Draft)
+
+Game build used for scans:
+
+- Super Mario Sunshine USA (`GMSE01`)
+
+Progress signal currently selected for v0:
+
+- address: `0x80FA50D4`
+- type: `float`
+- status: accepted as a stable interim signal for environment bring-up
+
+Notes:
+
+- This value is stable, monotonic, and repeatable from the fixed blooper savestate.
+- It appears to be time-like rather than pure geometric course distance.
+- For v0, this is acceptable while finish/fail flags are still being finalized.
+
 
 ## Similar Project
 - The github repo below is similar in problem/solution, however it is coded for mario kart wii specifically so there might not be much carryover in the implementation details.

@@ -91,6 +91,11 @@ The current driver expects up to three memory bindings:
 - mission finished flag
 - mission failed flag
 
+Current working draft progress binding for USA Sunshine (`GMSE01`):
+
+- `progress_address=0x80FA50D4`
+- `progress_type=float`
+
 The practical workflow is:
 
 1. Launch Dolphin and the game manually.

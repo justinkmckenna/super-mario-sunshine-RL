@@ -2,10 +2,10 @@ $ErrorActionPreference = "Stop"
 
 $python = ".\.venv\Scripts\python.exe"
 $dolphinExe = "C:\Users\justi\Downloads\dolphin-2512-x64\Dolphin-x64\Dolphin.exe"
-$gamePath = "C:\Users\justi\Downloads\Super Mario Sunshine (2002)(Nintendo)(EU)(M5).iso"
+$gamePath = "C:\Users\justi\Downloads\Super Mario Sunshine (2002)(Nintendo)(US).iso"
 
-# Fill these in once the Sunshine memory map is known.
-$progressAddress = "0x00000000"
+# Working draft progress address (USA Sunshine / GMSE01).
+$progressAddress = "0x80FA50D4"
 $finishedAddress = "0x00000000"
 $failedAddress = "0x00000000"
 
