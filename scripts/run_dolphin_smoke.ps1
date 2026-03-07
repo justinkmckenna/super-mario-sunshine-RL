@@ -7,7 +7,8 @@ $gamePath = "C:\Users\justi\Downloads\Super Mario Sunshine (2002)(Nintendo)(US).
 # Working draft progress address (USA Sunshine / GMSE01).
 $progressAddress = "0x80FA50D4"
 $finishedAddress = "0x00000000"
-$failedAddress = "0x00000000"
+# Working draft failed flag address (USA Sunshine / GMSE01).
+$failedAddress = "0x804257D3"
 
 & $python -m sms_rl.cli `
   --backend dolphin `
@@ -17,4 +18,6 @@ $failedAddress = "0x00000000"
   --game-path $gamePath `
   --progress-address $progressAddress `
   --finished-address $finishedAddress `
-  --failed-address $failedAddress
+  --failed-address $failedAddress `
+  --failed-type byte `
+  --failed-value 1

@@ -96,6 +96,12 @@ Current working draft progress binding for USA Sunshine (`GMSE01`):
 - `progress_address=0x80FA50D4`
 - `progress_type=float`
 
+Current working draft mission-failed binding for USA Sunshine (`GMSE01`):
+
+- `failed_address=0x804257D3`
+- `failed_type=byte`
+- `failed_value=1`
+
 The practical workflow is:
 
 1. Launch Dolphin and the game manually.

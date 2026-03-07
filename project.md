@@ -241,11 +241,19 @@ Progress signal currently selected for v0:
 - type: `float`
 - status: accepted as a stable interim signal for environment bring-up
 
+Mission failed signal currently selected for v0:
+
+- address: `0x804257D3`
+- type: `byte`
+- failed value: `1`
+- status: accepted as a provisional fail flag for environment bring-up
+
 Notes:
 
 - This value is stable, monotonic, and repeatable from the fixed blooper savestate.
 - It appears to be time-like rather than pure geometric course distance.
 - For v0, this is acceptable while finish/fail flags are still being finalized.
+- The fail flag candidate toggles `0 -> 1` on failure and returns to `0` after savestate reload in repeated checks.
 
 
 ## Similar Project
