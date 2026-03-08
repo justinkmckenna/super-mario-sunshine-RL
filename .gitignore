@@ -19,3 +19,6 @@ htmlcov/
 Thumbs.db
 .idea/
 .vscode/
+
+# Local Dolphin emulator user data/profiles (machine-specific, contains caches and runtime state)
+dolphin_user_*/

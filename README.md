@@ -44,7 +44,7 @@ The first real driver scaffold is available in `sms_rl/drivers/dolphin.py`.
 It is designed around:
 
 - Dolphin launched on Windows in windowed mode
-- controller input through `vgamepad`
+- controller input through `vgamepad` or keyboard mode
 - frame capture through `DXcam`
 - progress / finish / failure from `dolphin-memory-engine`
 
@@ -79,9 +79,10 @@ That command is only usable after you identify working Sunshine memory addresses
 Current local paths on this machine:
 
 - Dolphin executable: `C:\Users\justi\Downloads\dolphin-2512-x64\Dolphin-x64\Dolphin.exe`
-- Sunshine ISO: `C:\Users\justi\Downloads\Super Mario Sunshine (2002)(Nintendo)(EU)(M5).iso`
+- Sunshine ISO: `C:\Users\justi\Downloads\Super Mario Sunshine (2002)(Nintendo)(US).iso`
 
 For convenience, see `scripts/run_dolphin_smoke.ps1`.
+For baseline comparison runs, use `scripts/run_dolphin_baselines.ps1`.
 
 ## Finding Memory Addresses
 
@@ -102,11 +103,32 @@ Current working draft mission-failed binding for USA Sunshine (`GMSE01`):
 - `failed_type=byte`
 - `failed_value=1`
 
-Mission-success binding status:
+Current working draft mission-success binding for USA Sunshine (`GMSE01`) on
+purple-blooper start savestate:
 
-- currently unset
-- next step is rediscovery from the new purple-blooper savestate
-- target definition is true race completion within expected mission conditions
+- `finished_address=0x805F64C6`
+- `finished_type=byte`
+- `finished_value=1`
+
+Current working savestate path:
+
+- `C:\Users\justi\Downloads\purple-blooper-start.sav`
+
+## Run Real Baselines
+
+Smoke test (single neutral episode):
+
+```bash
+powershell -ExecutionPolicy Bypass -File .\scripts\run_dolphin_smoke.ps1
+```
+
+Baseline comparison (5 neutral + 5 random episodes):
+
+```bash
+powershell -ExecutionPolicy Bypass -File .\scripts\run_dolphin_baselines.ps1
+```
+
+Current baseline scripts are configured for vgamepad control mode.
 
 The practical workflow is:
 
@@ -122,6 +144,12 @@ For a first pass, likely useful targets are:
 - a state byte that changes on wipeout or mission failure
 
 Once you identify candidate addresses, plug them into the smoke-test script or CLI flags.
+
+Use `scripts/find_success_flag_candidates.py` for success discovery with modes:
+
+- `--mode basic`: safe/success/reset cycles
+- `--mode win-only`: requires fail states to stay at baseline
+- `--mode true-finish`: distinguishes bad terminals from true finish
 
 ## Integration Notes
 

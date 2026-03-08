@@ -38,16 +38,21 @@ class MockBlooperDriver:
         return self._state()
 
     def step(self, action: SteeringAction, repeat: int) -> StepState:
+        is_jump = action == SteeringAction.JUMP
         steer = {
             SteeringAction.LEFT: -1.0,
             SteeringAction.NEUTRAL: 0.0,
             SteeringAction.RIGHT: 1.0,
+            SteeringAction.JUMP: 0.0,
         }[action]
 
         for _ in range(repeat):
             self._step_count += 1
             self._progress += self._track.forward_speed
             self._lateral_offset += steer * self._track.steering_delta
+            if is_jump:
+                jump_impulse = 0.24 if (self._step_count % 2 == 0) else -0.24
+                self._lateral_offset += jump_impulse
             self._lateral_offset *= 0.92
             if abs(self._lateral_offset) > self._track.lateral_limit:
                 break

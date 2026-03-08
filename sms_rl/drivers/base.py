@@ -10,6 +10,7 @@ class SteeringAction(IntEnum):
     LEFT = 0
     NEUTRAL = 1
     RIGHT = 2
+    JUMP = 3
 
 
 class BlooperDriver(Protocol):

@@ -250,10 +250,10 @@ Mission failed signal currently selected for v0:
 
 Mission success signal status:
 
-- currently unset
-- previously tested candidates were not robust enough
-- next step is rediscovery from a purple-blooper start savestate
-- target is true race completion under expected mission conditions
+- address: `0x805F64C6`
+- type: `byte`
+- success value: `1`
+- status: accepted as provisional success flag for purple-blooper start savestate
 
 Notes:
 
@@ -261,7 +261,8 @@ Notes:
 - It appears to be time-like rather than pure geometric course distance.
 - For v0, this is acceptable while finish/fail flags are still being finalized.
 - The fail flag candidate toggles `0 -> 1` on failure and returns to `0` after savestate reload in repeated checks.
-- Progress and fail bindings should be re-verified after switching to the purple-blooper savestate.
+- Progress and fail bindings were re-verified on the purple-blooper savestate.
+- The success flag candidate remained `0` in fail runs and flipped to `1` in success runs on repeated checks.
 
 
 ## Similar Project

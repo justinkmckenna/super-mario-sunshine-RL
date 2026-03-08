@@ -7,11 +7,9 @@ $saveStatePath = "C:\Users\justi\Downloads\purple-blooper-start.sav"
 $userPath = "C:\Users\justi\Projects\super-mario-sunshine-RL\dolphin_user_profile"
 $windowTitle = "Super Mario Sunshine"
 
-# Working draft progress address (USA Sunshine / GMSE01).
+# Locked v0 bindings (purple blooper start).
 $progressAddress = "0x80FA50D4"
-# Working draft success flag address (USA Sunshine / GMSE01, purple blooper start).
 $finishedAddress = "0x805F64C6"
-# Working draft failed flag address (USA Sunshine / GMSE01).
 $failedAddress = "0x804257D3"
 
 if (-not ("Win32.NativeMethods" -as [type])) {
@@ -25,28 +23,37 @@ $ES_CONTINUOUS = [Convert]::ToUInt32("80000000", 16)
 $ES_SYSTEM_REQUIRED = [uint32]0x00000001
 $ES_DISPLAY_REQUIRED = [uint32]0x00000002
 
+$commonArgs = @(
+  "-m", "sms_rl.cli",
+  "--backend", "dolphin",
+  "--control-mode", "vgamepad",
+  "--window-title", $windowTitle,
+  "--episodes", "3",
+  "--capture-fps", "30",
+  "--dolphin-exe", $dolphinExe,
+  "--game-path", $gamePath,
+  "--save-state", $saveStatePath,
+  "--user-path", $userPath,
+  "--progress-address", $progressAddress,
+  "--progress-type", "float",
+  "--finished-address", $finishedAddress,
+  "--finished-type", "byte",
+  "--finished-value", "1",
+  "--failed-address", $failedAddress,
+  "--failed-type", "byte",
+  "--failed-value", "1"
+)
+
 try {
   $awakeFlags = [uint32]($ES_CONTINUOUS -bor $ES_SYSTEM_REQUIRED -bor $ES_DISPLAY_REQUIRED)
   [Win32.NativeMethods]::SetThreadExecutionState($awakeFlags) | Out-Null
 
-  & $python -m sms_rl.cli `
-    --backend dolphin `
-    --baseline neutral `
-    --episodes 1 `
-    --capture-fps 30 `
-    --control-mode vgamepad `
-    --window-title $windowTitle `
-    --dolphin-exe $dolphinExe `
-    --game-path $gamePath `
-    --save-state $saveStatePath `
-    --user-path $userPath `
-    --progress-address $progressAddress `
-    --finished-address $finishedAddress `
-    --finished-type byte `
-    --finished-value 1 `
-    --failed-address $failedAddress `
-    --failed-type byte `
-    --failed-value 1
+  Write-Host "Running neutral baseline..."
+  & $python @commonArgs --baseline neutral
+
+  Write-Host ""
+  Write-Host "Running random baseline..."
+  & $python @commonArgs --baseline random
 }
 finally {
   [Win32.NativeMethods]::SetThreadExecutionState([uint32]$ES_CONTINUOUS) | Out-Null

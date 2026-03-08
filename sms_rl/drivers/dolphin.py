@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import contextlib
 import ctypes
+import gc
+import io
 import subprocess
 import time
+from ctypes import wintypes
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Literal
 
 import numpy as np
 
@@ -37,7 +41,7 @@ class DolphinLaunchConfig:
 @dataclass(slots=True)
 class CaptureConfig:
     region: tuple[int, int, int, int] | None = None
-    output_color: Literal["gray", "rgb"] = "gray"
+    output_color: Literal["gray", "rgb", "bgr"] = "gray"
     target_fps: int = 60
     warmup_frames: int = 10
 
@@ -67,16 +71,21 @@ class DolphinDriverConfig:
     observation: ObservationConfig = field(default_factory=ObservationConfig)
     capture: CaptureConfig = field(default_factory=CaptureConfig)
     memory: MemoryBindings = field(default_factory=MemoryBindings)
+    control_mode: Literal["vgamepad", "keyboard"] = "vgamepad"
     restart_on_reset: bool = True
     neutral_deadzone: float = 0.2
     left_stick_magnitude: float = 0.75
     post_launch_delay_s: float = 2.0
     post_reset_delay_s: float = 0.5
     step_sleep_s: float = 0.0
+    step_frame_time_s: float = 0.05
+    keyboard_left_vk: int = 0x25   # Left arrow
+    keyboard_right_vk: int = 0x27  # Right arrow
+    keyboard_jump_vk: int = 0x58   # X key
 
 
 class DolphinWindowsDriver:
-    """Windows Dolphin driver backed by DXcam, vgamepad, and memory-engine.
+    """Windows Dolphin driver backed by DXcam and Dolphin Memory Engine.
 
     This driver is intentionally generic about game-state addresses. It can run
     only after the project supplies working addresses for progress, mission
@@ -89,23 +98,37 @@ class DolphinWindowsDriver:
         self._camera = None
         self._window_handle: int | None = None
         self._capture_region: tuple[int, int, int, int] | None = None
-        self._gamepad = self._create_gamepad()
+        self._last_frame: np.ndarray | None = None
+        self._gamepad = self._create_gamepad() if self._use_vgamepad else None
         self._memory = self._load_memory_engine()
         self._dxcam = None
+
+    @property
+    def _use_vgamepad(self) -> bool:
+        return self.config.control_mode == "vgamepad"
 
     def reset(self) -> StepState:
         if self.config.restart_on_reset or self._process is None:
             self._restart_dolphin()
 
+        self._focus_window()
         self._center_steering()
         time.sleep(self.config.post_reset_delay_s)
         return self._read_state()
 
     def step(self, action: SteeringAction, repeat: int) -> StepState:
         self._ensure_runtime_ready()
-        self._apply_steering(action)
-        if self.config.step_sleep_s > 0:
-            time.sleep(self.config.step_sleep_s * repeat)
+        self._focus_window()
+        repeat_count = max(1, repeat)
+        for _ in range(repeat_count):
+            self._apply_steering(action)
+            sleep_s = (
+                self.config.step_sleep_s
+                if self.config.step_sleep_s > 0
+                else self.config.step_frame_time_s
+            )
+            if sleep_s > 0:
+                time.sleep(sleep_s)
         return self._read_state()
 
     def close(self) -> None:
@@ -226,22 +249,13 @@ class DolphinWindowsDriver:
             ) from exc
 
         self._dxcam = dxcam
-        try:
-            self._camera = dxcam.create(output_color=self.config.capture.output_color)
-            self._camera.start(
-                region=self._capture_region,
-                target_fps=self.config.capture.target_fps,
-            )
-        except Exception as exc:
-            raise DolphinDriverError(
-                "DXcam failed to start. Confirm the session has an active display."
-            ) from exc
+        self._camera = self._create_camera()
 
     def _warmup_capture(self) -> None:
         if self._camera is None:
             return
         for _ in range(self.config.capture.warmup_frames):
-            frame = self._camera.get_latest_frame()
+            frame = self._camera.grab(region=self._capture_region)
             if frame is not None:
                 break
             time.sleep(0.05)
@@ -273,13 +287,77 @@ class DolphinWindowsDriver:
         if self._camera is None:
             raise DolphinDriverError("Capture camera is not initialized.")
 
-        frame = self._camera.get_latest_frame()
+        frame = None
+        consecutive_grab_errors = 0
+        for _attempt in range(12):
+            try:
+                frame = self._camera.grab(region=self._capture_region)
+            except Exception:
+                # DXGI duplication can transiently fail (e.g. keyed mutex abandoned).
+                # Only perform hard recovery after repeated failures.
+                consecutive_grab_errors += 1
+                if consecutive_grab_errors >= 3:
+                    self._recover_camera(hard=True)
+                    consecutive_grab_errors = 0
+                time.sleep(0.03)
+                continue
+            if frame is not None:
+                break
+            # `None` frames can occur transiently; do not recreate the camera.
+            time.sleep(0.01)
         if frame is None:
+            if self._last_frame is not None:
+                return self._last_frame.copy()
             raise DolphinDriverError("DXcam did not return a frame.")
         if frame.ndim != 2 and frame.ndim != 3:
             raise DolphinDriverError(f"Unexpected frame shape from DXcam: {frame.shape}")
 
-        return np.ascontiguousarray(frame)
+        contiguous = np.ascontiguousarray(frame)
+        self._last_frame = contiguous
+        return contiguous
+
+    def _recover_camera(self, *, hard: bool = False) -> None:
+        if self._dxcam is None:
+            raise DolphinDriverError("DXcam module is not initialized.")
+        if self._capture_region is None:
+            raise DolphinDriverError("Capture region is not initialized.")
+
+        if self._camera is None:
+            self._camera = self._create_camera()
+            return
+
+        if not hard:
+            on_output_change = getattr(self._camera, "_on_output_change", None)
+            if callable(on_output_change):
+                try:
+                    on_output_change()
+                    return
+                except Exception:
+                    pass
+
+        try:
+            self._camera.release()
+        except Exception:
+            pass
+        self._camera = None
+        gc.collect()
+        self._camera = self._create_camera()
+
+    def _create_camera(self):
+        if self._dxcam is None:
+            raise DolphinDriverError("DXcam module is not initialized.")
+        output_color = _to_dxcam_color(self.config.capture.output_color)
+        muted_out = io.StringIO()
+        try:
+            # dxcam prints singleton messages to stdout; suppress to keep logs clean.
+            with contextlib.redirect_stdout(muted_out), contextlib.redirect_stderr(
+                muted_out
+            ):
+                return self._dxcam.create(output_color=output_color)
+        except Exception as exc:
+            raise DolphinDriverError(
+                "DXcam failed to start. Confirm the session has an active display."
+            ) from exc
 
     def _create_gamepad(self):
         try:
@@ -300,6 +378,12 @@ class DolphinWindowsDriver:
             ) from exc
 
     def _apply_steering(self, action: SteeringAction) -> None:
+        if not self._use_vgamepad:
+            self._apply_keyboard_steering(action)
+            return
+
+        if self._gamepad is None:
+            raise DolphinDriverError("Virtual gamepad was not initialized.")
         magnitude = self.config.left_stick_magnitude
         if action == SteeringAction.LEFT:
             x_value = -magnitude
@@ -312,11 +396,51 @@ class DolphinWindowsDriver:
             x_value_float=x_value,
             y_value_float=0.0,
         )
+        # Optional vgamepad jump behavior if this mode is used later.
+        if action == SteeringAction.JUMP:
+            import vgamepad as vg  # type: ignore
+
+            self._gamepad.press_button(button=vg.XUSB_BUTTON.XUSB_GAMEPAD_A)
+        else:
+            import vgamepad as vg  # type: ignore
+
+            self._gamepad.release_button(button=vg.XUSB_BUTTON.XUSB_GAMEPAD_A)
         self._gamepad.update()
 
     def _center_steering(self) -> None:
-        self._gamepad.left_joystick_float(x_value_float=0.0, y_value_float=0.0)
-        self._gamepad.update()
+        if self._use_vgamepad:
+            if self._gamepad is None:
+                return
+            self._gamepad.left_joystick_float(x_value_float=0.0, y_value_float=0.0)
+            self._gamepad.update()
+            return
+        _key_up(self.config.keyboard_left_vk)
+        _key_up(self.config.keyboard_right_vk)
+        _key_up(self.config.keyboard_jump_vk)
+
+    def _apply_keyboard_steering(self, action: SteeringAction) -> None:
+        if action == SteeringAction.LEFT:
+            _key_down(self.config.keyboard_left_vk)
+            _key_up(self.config.keyboard_right_vk)
+            _key_up(self.config.keyboard_jump_vk)
+        elif action == SteeringAction.RIGHT:
+            _key_down(self.config.keyboard_right_vk)
+            _key_up(self.config.keyboard_left_vk)
+            _key_up(self.config.keyboard_jump_vk)
+        elif action == SteeringAction.JUMP:
+            _key_up(self.config.keyboard_left_vk)
+            _key_up(self.config.keyboard_right_vk)
+            _tap_key(self.config.keyboard_jump_vk)
+        else:
+            _key_up(self.config.keyboard_left_vk)
+            _key_up(self.config.keyboard_right_vk)
+            _key_up(self.config.keyboard_jump_vk)
+
+    def _focus_window(self) -> None:
+        if self._window_handle is None:
+            return
+        user32 = ctypes.windll.user32
+        user32.SetForegroundWindow(self._window_handle)
 
     def _load_memory_engine(self):
         try:
@@ -400,6 +524,79 @@ def _read_scalar(memory_module, value_type: ScalarType, address: int) -> int | f
     raise DolphinDriverError(f"Unsupported memory scalar type: {value_type}")
 
 
+def _to_dxcam_color(value: str) -> str:
+    # DXcam color modes are case-sensitive and expected in uppercase.
+    mapping = {
+        "gray": "GRAY",
+        "rgb": "RGB",
+        "bgr": "BGR",
+    }
+    key = value.lower()
+    if key not in mapping:
+        raise DolphinDriverError(f"Unsupported capture output_color: {value}")
+    return mapping[key]
+
+
+def _key_down(vk_code: int) -> None:
+    _send_input_key(vk_code, key_up=False)
+
+
+def _key_up(vk_code: int) -> None:
+    _send_input_key(vk_code, key_up=True)
+
+
+def _tap_key(vk_code: int, hold_s: float = 0.03) -> None:
+    _key_down(vk_code)
+    time.sleep(hold_s)
+    _key_up(vk_code)
+
+
+def _send_input_key(vk_code: int, *, key_up: bool) -> None:
+    user32 = ctypes.windll.user32
+
+    INPUT_KEYBOARD = 1
+    KEYEVENTF_EXTENDEDKEY = 0x0001
+    KEYEVENTF_KEYUP = 0x0002
+    KEYEVENTF_SCANCODE = 0x0008
+
+    scan = user32.MapVirtualKeyW(vk_code, 0)
+    if scan == 0:
+        return
+
+    flags = KEYEVENTF_SCANCODE
+    if vk_code in (0x25, 0x26, 0x27, 0x28):  # Arrow keys.
+        flags |= KEYEVENTF_EXTENDEDKEY
+    if key_up:
+        flags |= KEYEVENTF_KEYUP
+
+    class KEYBDINPUT(ctypes.Structure):
+        _fields_ = [
+            ("wVk", wintypes.WORD),
+            ("wScan", wintypes.WORD),
+            ("dwFlags", wintypes.DWORD),
+            ("time", wintypes.DWORD),
+            ("dwExtraInfo", ctypes.POINTER(ctypes.c_ulong)),
+        ]
+
+    class INPUT(ctypes.Structure):
+        _fields_ = [
+            ("type", wintypes.DWORD),
+            ("ki", KEYBDINPUT),
+        ]
+
+    payload = INPUT(
+        type=INPUT_KEYBOARD,
+        ki=KEYBDINPUT(
+            wVk=0,
+            wScan=scan,
+            dwFlags=flags,
+            time=0,
+            dwExtraInfo=None,
+        ),
+    )
+    user32.SendInput(1, ctypes.byref(payload), ctypes.sizeof(INPUT))
+
+
 WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
 
 
@@ -429,12 +626,12 @@ def _find_window(title_contains: str) -> int | None:
 
 def _get_client_rect(hwnd: int) -> tuple[int, int, int, int]:
     user32 = ctypes.windll.user32
-    rect = ctypes.wintypes.RECT()
+    rect = wintypes.RECT()
     if not user32.GetClientRect(hwnd, ctypes.byref(rect)):
         raise DolphinDriverError("Failed to query the Dolphin client rect.")
 
-    top_left = ctypes.wintypes.POINT(rect.left, rect.top)
-    bottom_right = ctypes.wintypes.POINT(rect.right, rect.bottom)
+    top_left = wintypes.POINT(rect.left, rect.top)
+    bottom_right = wintypes.POINT(rect.right, rect.bottom)
     if not user32.ClientToScreen(hwnd, ctypes.byref(top_left)):
         raise DolphinDriverError("Failed to translate Dolphin client rect.")
     if not user32.ClientToScreen(hwnd, ctypes.byref(bottom_right)):

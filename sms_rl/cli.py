@@ -33,7 +33,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dolphin-exe", type=Path)
     parser.add_argument("--game-path", type=Path)
     parser.add_argument("--save-state", type=Path)
+    parser.add_argument("--user-path", type=Path)
     parser.add_argument("--window-title", default="Dolphin")
+    parser.add_argument(
+        "--control-mode",
+        choices=("vgamepad", "keyboard"),
+        default="vgamepad",
+    )
     parser.add_argument("--capture-fps", type=int, default=60)
     parser.add_argument("--progress-address", type=parse_address)
     parser.add_argument(
@@ -98,10 +104,12 @@ def build_env(args: argparse.Namespace) -> BlooperSurfingEnv:
             dolphin_path=args.dolphin_exe,
             game_path=args.game_path,
             save_state_path=args.save_state,
+            user_path=args.user_path,
             window_title_contains=args.window_title,
         ),
         capture=CaptureConfig(target_fps=args.capture_fps),
         memory=memory,
+        control_mode=args.control_mode,
     )
     driver = DolphinWindowsDriver(driver_config)
     return BlooperSurfingEnv(config=EnvConfig(), driver=driver)
