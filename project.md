@@ -248,12 +248,20 @@ Mission failed signal currently selected for v0:
 - failed value: `1`
 - status: accepted as a provisional fail flag for environment bring-up
 
+Mission success signal status:
+
+- currently unset
+- previously tested candidates were not robust enough
+- next step is rediscovery from a purple-blooper start savestate
+- target is true race completion under expected mission conditions
+
 Notes:
 
 - This value is stable, monotonic, and repeatable from the fixed blooper savestate.
 - It appears to be time-like rather than pure geometric course distance.
 - For v0, this is acceptable while finish/fail flags are still being finalized.
 - The fail flag candidate toggles `0 -> 1` on failure and returns to `0` after savestate reload in repeated checks.
+- Progress and fail bindings should be re-verified after switching to the purple-blooper savestate.
 
 
 ## Similar Project

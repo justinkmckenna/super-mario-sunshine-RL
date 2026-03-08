@@ -102,6 +102,12 @@ Current working draft mission-failed binding for USA Sunshine (`GMSE01`):
 - `failed_type=byte`
 - `failed_value=1`
 
+Mission-success binding status:
+
+- currently unset
+- next step is rediscovery from the new purple-blooper savestate
+- target definition is true race completion within expected mission conditions
+
 The practical workflow is:
 
 1. Launch Dolphin and the game manually.
