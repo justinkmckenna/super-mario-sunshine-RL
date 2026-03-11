@@ -4,6 +4,8 @@ import contextlib
 import ctypes
 import gc
 import io
+import os
+import stat
 import subprocess
 import time
 from ctypes import wintypes
@@ -143,11 +145,7 @@ class DolphinWindowsDriver:
         self._unhook_memory()
 
         if self._process is not None and self._process.poll() is None:
-            self._process.terminate()
-            try:
-                self._process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._process.kill()
+            self._shutdown_process_gracefully()
         self._process = None
 
     def _restart_dolphin(self) -> None:
@@ -172,11 +170,7 @@ class DolphinWindowsDriver:
             self._camera = None
 
         if self._process is not None and self._process.poll() is None:
-            self._process.terminate()
-            try:
-                self._process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self._process.kill()
+            self._shutdown_process_gracefully()
 
         self._process = None
         self._window_handle = None
@@ -194,6 +188,8 @@ class DolphinWindowsDriver:
             raise DolphinDriverError(
                 f"Save state path not found: {launch.save_state_path}"
             )
+        if launch.user_path is not None:
+            _cleanup_stale_wii_fst_temp(launch.user_path)
 
         command = [str(launch.dolphin_path), "--exec", str(launch.game_path)]
         if launch.save_state_path is not None:
@@ -206,6 +202,30 @@ class DolphinWindowsDriver:
             command.extend(["--config", "Dolphin.Display.RenderToMain=True"])
 
         return subprocess.Popen(command)
+
+    def _shutdown_process_gracefully(self) -> None:
+        # In non-batch mode we can ask Dolphin to close cleanly through WM_CLOSE.
+        # In batch mode, skip WM_CLOSE to avoid any confirmation dialog path.
+        try:
+            if (not self.config.launch.batch_mode) and self._window_handle is not None:
+                _post_close_window(self._window_handle)
+        except Exception:
+            pass
+
+        if self._process is None:
+            return
+
+        try:
+            self._process.wait(timeout=4)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+
+        self._process.terminate()
+        try:
+            self._process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            self._process.kill()
 
     def _ensure_runtime_ready(self) -> None:
         if self._process is None:
@@ -262,19 +282,25 @@ class DolphinWindowsDriver:
 
     def _read_state(self) -> StepState:
         frame = self._capture_frame()
-        progress = self._read_memory_value(self.config.memory.progress, default=0.0)
-        mission_finished = self._read_memory_flag(
-            self.config.memory.mission_finished, default=False
-        )
-        mission_failed = self._read_memory_flag(
-            self.config.memory.mission_failed, default=False
-        )
-
         info = {
             "backend": "dolphin",
             "window_handle": self._window_handle,
             "capture_region": self._capture_region,
         }
+        try:
+            progress = self._read_memory_value(self.config.memory.progress, default=0.0)
+            mission_finished = self._read_memory_flag(
+                self.config.memory.mission_finished, default=False
+            )
+            mission_failed = self._read_memory_flag(
+                self.config.memory.mission_failed, default=False
+            )
+        except Exception as exc:
+            # Fail closed on unrecoverable memory read errors so long runs do not hang/crash.
+            info["memory_error"] = str(exc)
+            progress = 0.0
+            mission_finished = False
+            mission_failed = True
         return StepState(
             frame=frame,
             progress=float(progress),
@@ -483,9 +509,22 @@ class DolphinWindowsDriver:
     ) -> float:
         if spec is None:
             return default
-        self._ensure_memory_ready()
-        address = self._resolve_address(spec)
-        return float(_read_scalar(self._memory, spec.value_type, address))
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            try:
+                self._ensure_memory_ready()
+                address = self._resolve_address(spec)
+                return float(_read_scalar(self._memory, spec.value_type, address))
+            except Exception as exc:
+                last_exc = exc
+                if attempt < 2:
+                    self._rehook_memory()
+                    time.sleep(0.02)
+                    continue
+                break
+        raise DolphinDriverError(
+            f"Failed to read Dolphin memory at {hex(spec.base_address)}"
+        ) from last_exc
 
     def _read_memory_flag(
         self,
@@ -510,6 +549,14 @@ class DolphinWindowsDriver:
             raise DolphinDriverError(
                 "Dolphin memory is not hooked. Provide memory bindings and call reset()."
             )
+
+    def _rehook_memory(self) -> None:
+        try:
+            if self._memory.is_hooked():
+                self._memory.un_hook()
+        except Exception:
+            pass
+        self._memory.hook()
 
 
 def _read_scalar(memory_module, value_type: ScalarType, address: int) -> int | float:
@@ -643,3 +690,27 @@ def _get_client_rect(hwnd: int) -> tuple[int, int, int, int]:
         bottom_right.x,
         bottom_right.y,
     )
+
+
+def _post_close_window(hwnd: int) -> None:
+    user32 = ctypes.windll.user32
+    WM_CLOSE = 0x0010
+    user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+
+
+def _cleanup_stale_wii_fst_temp(user_path: Path) -> None:
+    # Dolphin can leave stale temp files like `fst.bin.xxx` on abrupt shutdown.
+    # If present, next launch may show a modal warning and block automation.
+    wii_dir = user_path / "Wii"
+    if not wii_dir.exists():
+        return
+    for candidate in wii_dir.glob("fst.bin.*"):
+        # Retry because Dolphin may release file handles shortly after exit.
+        for _ in range(6):
+            try:
+                if candidate.exists():
+                    os.chmod(candidate, stat.S_IWRITE)
+                    candidate.unlink()
+                break
+            except OSError:
+                time.sleep(0.1)

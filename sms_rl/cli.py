@@ -34,6 +34,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--game-path", type=Path)
     parser.add_argument("--save-state", type=Path)
     parser.add_argument("--user-path", type=Path)
+    parser.add_argument(
+        "--dolphin-batch-mode",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Launch Dolphin with --batch to suppress interactive emulator prompts.",
+    )
     parser.add_argument("--window-title", default="Dolphin")
     parser.add_argument(
         "--control-mode",
@@ -104,6 +110,7 @@ def build_env(args: argparse.Namespace) -> BlooperSurfingEnv:
             dolphin_path=args.dolphin_exe,
             game_path=args.game_path,
             save_state_path=args.save_state,
+            batch_mode=args.dolphin_batch_mode,
             user_path=args.user_path,
             window_title_contains=args.window_title,
         ),
