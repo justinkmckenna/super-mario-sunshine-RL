@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+import time
 from typing import Any
 
 import gymnasium as gym
@@ -28,6 +29,7 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
         )
         self._last_progress = 0.0
         self._steps = 0
+        self._episode_start_s = 0.0
 
         obs_shape = self._observation_shape()
         self.action_space = spaces.Discrete(len(SteeringAction))
@@ -55,6 +57,7 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
 
         self._last_progress = state.progress
         self._steps = 0
+        self._episode_start_s = time.monotonic()
         return self._stacked_observation(), dict(state.info)
 
     def step(
@@ -68,12 +71,19 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
 
         reward = self._compute_reward(state)
         terminated = state.mission_finished or state.mission_failed
-        truncated = self._steps >= self.config.episode.max_steps and not terminated
+        elapsed_s = time.monotonic() - self._episode_start_s
+        timed_out = elapsed_s >= self.config.episode.max_episode_seconds
+        truncated = (
+            (self._steps >= self.config.episode.max_steps or timed_out)
+            and not terminated
+        )
 
         info = dict(state.info)
         info["mission_finished"] = state.mission_finished
         info["mission_failed"] = state.mission_failed
         info["episode_steps"] = self._steps
+        info["episode_elapsed_seconds"] = elapsed_s
+        info["timeout_truncated"] = bool(truncated and timed_out)
         info["progress"] = state.progress
         info["reward_components"] = self._reward_components(state)
 

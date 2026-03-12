@@ -181,10 +181,24 @@ Outputs are written to `runs/<run-name>/`:
 - `eval/*.mp4` (if `--record-eval-video`)
 - TensorBoard logs in `tensorboard/`
 
+By default, PPO training uses in-process resets (`--no-restart-on-reset`) and
+reloads savestate slot `1` between episodes. This avoids full Dolphin relaunches
+and is more stable for long runs.
+
+For stability when terminal flags occasionally miss, training also supports a
+wall-clock episode watchdog via `--max-episode-seconds` (example: `45`).
+
 PowerShell wrapper with current local paths:
 
 ```bash
 powershell -ExecutionPolicy Bypass -File .\scripts\run_dolphin_ppo_train.ps1
+```
+
+Alternative wrapper that uses in-process savestate reload between episodes
+(experimental on this setup):
+
+```bash
+powershell -ExecutionPolicy Bypass -File .\scripts\run_dolphin_ppo_train_soft_reset.ps1
 ```
 
 Current baseline scripts are configured for vgamepad control mode.

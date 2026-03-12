@@ -47,6 +47,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="vgamepad",
     )
     parser.add_argument("--capture-fps", type=int, default=60)
+    parser.add_argument(
+        "--restart-on-reset",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="If false, reset episodes by loading Dolphin savestate slot instead of relaunching Dolphin.",
+    )
+    parser.add_argument("--save-state-slot", type=int, default=1)
     parser.add_argument("--progress-address", type=parse_address)
     parser.add_argument(
         "--progress-type",
@@ -117,6 +124,8 @@ def build_env(args: argparse.Namespace) -> BlooperSurfingEnv:
         capture=CaptureConfig(target_fps=args.capture_fps),
         memory=memory,
         control_mode=args.control_mode,
+        restart_on_reset=args.restart_on_reset,
+        save_state_slot=args.save_state_slot,
     )
     driver = DolphinWindowsDriver(driver_config)
     return BlooperSurfingEnv(config=EnvConfig(), driver=driver)

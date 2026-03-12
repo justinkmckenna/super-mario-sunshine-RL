@@ -22,7 +22,7 @@ $ES_CONTINUOUS = [Convert]::ToUInt32("80000000", 16)
 $ES_SYSTEM_REQUIRED = [uint32]0x00000001
 $ES_DISPLAY_REQUIRED = [uint32]0x00000002
 
-$runName = "ppo_blooper_v1"
+$runName = "ppo_blooper_v1_softreset"
 $totalTimesteps = "50000"
 $evalEvery = "5000"
 $checkpointEvery = "5000"
@@ -39,7 +39,6 @@ try {
     --eval-every $evalEvery `
     --eval-episodes $evalEpisodes `
     --checkpoint-every $checkpointEvery `
-    --max-episode-seconds 45 `
     --dolphin-exe $dolphinExe `
     --game-path $gamePath `
     --save-state $saveStatePath `
@@ -47,7 +46,7 @@ try {
     --window-title $windowTitle `
     --control-mode vgamepad `
     --capture-fps 30 `
-    --restart-on-reset `
+    --no-restart-on-reset `
     --save-state-slot 1 `
     --progress-address $progressAddress `
     --progress-type float `

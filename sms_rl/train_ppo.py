@@ -61,6 +61,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--frame-stack", type=int, default=4)
     parser.add_argument("--max-steps", type=int, default=900)
+    parser.add_argument("--max-episode-seconds", type=float, default=45.0)
     parser.add_argument("--action-repeat", type=int, default=4)
     parser.add_argument("--step-penalty", type=float, default=-0.01)
     parser.add_argument("--finish-reward", type=float, default=25.0)
@@ -83,6 +84,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="vgamepad",
     )
     parser.add_argument("--capture-fps", type=int, default=30)
+    parser.add_argument(
+        "--restart-on-reset",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="If false, reset episodes by loading Dolphin savestate slot instead of relaunching Dolphin.",
+    )
+    parser.add_argument("--save-state-slot", type=int, default=1)
     parser.add_argument("--progress-address", type=parse_address, required=True)
     parser.add_argument(
         "--progress-type",
@@ -116,6 +124,7 @@ def build_env_factory(args: argparse.Namespace) -> Callable[[], BlooperSurfingEn
         ),
         episode=EpisodeConfig(
             max_steps=args.max_steps,
+            max_episode_seconds=args.max_episode_seconds,
             action_repeat=args.action_repeat,
             step_penalty=args.step_penalty,
             finish_reward=args.finish_reward,
@@ -153,6 +162,8 @@ def build_env_factory(args: argparse.Namespace) -> Callable[[], BlooperSurfingEn
             capture=CaptureConfig(target_fps=args.capture_fps),
             memory=memory,
             control_mode=args.control_mode,
+            restart_on_reset=args.restart_on_reset,
+            save_state_slot=args.save_state_slot,
         )
         return BlooperSurfingEnv(config=env_config, driver=DolphinWindowsDriver(driver_config))
 

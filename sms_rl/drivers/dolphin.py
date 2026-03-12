@@ -36,7 +36,7 @@ class DolphinLaunchConfig:
     user_path: Path | None = None
     render_to_main: bool = False
     window_title_contains: str = "Dolphin"
-    launch_timeout_s: float = 20.0
+    launch_timeout_s: float = 30.0
     stable_window_time_s: float = 1.0
 
 
@@ -84,6 +84,11 @@ class DolphinDriverConfig:
     keyboard_left_vk: int = 0x25   # Left arrow
     keyboard_right_vk: int = 0x27  # Right arrow
     keyboard_jump_vk: int = 0x58   # X key
+    save_state_slot: int = 1
+    initialize_reset_slot_on_launch: bool = True
+    post_soft_reset_delay_s: float = 0.35
+    launch_retries: int = 4
+    launch_retry_backoff_s: float = 0.75
 
 
 class DolphinWindowsDriver:
@@ -104,19 +109,38 @@ class DolphinWindowsDriver:
         self._gamepad = self._create_gamepad() if self._use_vgamepad else None
         self._memory = self._load_memory_engine()
         self._dxcam = None
+        self._slot_initialized = False
 
     @property
     def _use_vgamepad(self) -> bool:
         return self.config.control_mode == "vgamepad"
 
     def reset(self) -> StepState:
+        used_soft_reset = False
         if self.config.restart_on_reset or self._process is None:
             self._restart_dolphin()
+        else:
+            try:
+                self._soft_reset_to_start()
+                used_soft_reset = True
+            except Exception:
+                # Fall back to full relaunch if in-process reset fails.
+                self._restart_dolphin()
 
         self._focus_window()
         self._center_steering()
         time.sleep(self.config.post_reset_delay_s)
-        return self._read_state()
+        try:
+            return self._read_state()
+        except Exception:
+            # If soft reset left capture/memory in a bad state, recover by relaunching.
+            if used_soft_reset:
+                self._restart_dolphin()
+                self._focus_window()
+                self._center_steering()
+                time.sleep(self.config.post_reset_delay_s)
+                return self._read_state()
+            raise
 
     def step(self, action: SteeringAction, repeat: int) -> StepState:
         self._ensure_runtime_ready()
@@ -150,15 +174,80 @@ class DolphinWindowsDriver:
 
     def _restart_dolphin(self) -> None:
         self._terminate_existing_process()
-        self._process = self._launch_dolphin()
-        time.sleep(self.config.post_launch_delay_s)
-        self._window_handle = self._wait_for_window()
-        self._capture_region = self.config.capture.region or _get_client_rect(
-            self._window_handle
-        )
-        self._init_camera()
-        self._hook_memory()
-        self._warmup_capture()
+        retries = max(1, self.config.launch_retries)
+        last_exc: Exception | None = None
+        for attempt in range(retries):
+            try:
+                self._process = self._launch_dolphin()
+                time.sleep(self.config.post_launch_delay_s + (attempt * 0.15))
+                self._window_handle = self._wait_for_window()
+                self._capture_region = self.config.capture.region or _get_client_rect(
+                    self._window_handle
+                )
+                self._init_camera()
+                self._hook_memory()
+                self._warmup_capture()
+                self._slot_initialized = False
+                if (
+                    self.config.launch.save_state_path is not None
+                    and self.config.initialize_reset_slot_on_launch
+                ):
+                    self._initialize_reset_slot()
+                return
+            except Exception as exc:
+                last_exc = exc
+                self._terminate_existing_process()
+                if self.config.launch.user_path is not None:
+                    _cleanup_stale_wii_fst_temp(self.config.launch.user_path)
+                if attempt < retries - 1:
+                    delay = self.config.launch_retry_backoff_s * (attempt + 1)
+                    time.sleep(delay)
+                    continue
+                break
+        raise DolphinDriverError(
+            f"Failed to relaunch Dolphin after {retries} attempts."
+        ) from last_exc
+
+    def _soft_reset_to_start(self) -> None:
+        self._ensure_runtime_ready()
+        self._focus_window()
+        if not self._slot_initialized:
+            if self.config.launch.save_state_path is None:
+                raise DolphinDriverError(
+                    "Cannot soft reset without initial save state. Configure --save-state."
+                )
+            self._initialize_reset_slot()
+        self._load_state_slot()
+        time.sleep(self.config.post_soft_reset_delay_s)
+        # DXGI duplication can become stale on in-process load-state transitions.
+        # Recreate capture device once per soft reset for stability.
+        self._recover_camera(hard=True)
+        if not self._memory.is_hooked():
+            self._hook_memory()
+
+    def _initialize_reset_slot(self) -> None:
+        self._save_state_slot()
+        self._slot_initialized = True
+
+    def _state_slot_vk(self) -> int:
+        slot = self.config.save_state_slot
+        if slot < 1 or slot > 8:
+            raise DolphinDriverError("save_state_slot must be in range 1..8")
+        return 0x70 + (slot - 1)  # F1..F8
+
+    def _save_state_slot(self) -> None:
+        slot_vk = self._state_slot_vk()
+        shift_vk = 0x10
+        _key_down(shift_vk)
+        try:
+            _tap_key(slot_vk, hold_s=0.05)
+        finally:
+            _key_up(shift_vk)
+        time.sleep(0.1)
+
+    def _load_state_slot(self) -> None:
+        slot_vk = self._state_slot_vk()
+        _tap_key(slot_vk, hold_s=0.05)
 
     def _terminate_existing_process(self) -> None:
         self._unhook_memory()
@@ -704,13 +793,15 @@ def _cleanup_stale_wii_fst_temp(user_path: Path) -> None:
     wii_dir = user_path / "Wii"
     if not wii_dir.exists():
         return
-    for candidate in wii_dir.glob("fst.bin.*"):
+    candidates = [wii_dir / "fst.bin"]
+    candidates.extend(list(wii_dir.glob("fst.bin.*")))
+    for candidate in candidates:
         # Retry because Dolphin may release file handles shortly after exit.
-        for _ in range(6):
+        for _ in range(10):
             try:
                 if candidate.exists():
                     os.chmod(candidate, stat.S_IWRITE)
                     candidate.unlink()
                 break
             except OSError:
-                time.sleep(0.1)
+                time.sleep(0.15)

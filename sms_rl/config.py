@@ -14,6 +14,7 @@ class ObservationConfig:
 @dataclass(slots=True)
 class EpisodeConfig:
     max_steps: int = 900
+    max_episode_seconds: float = 45.0
     action_repeat: int = 4
     step_penalty: float = -0.01
     finish_reward: float = 25.0
