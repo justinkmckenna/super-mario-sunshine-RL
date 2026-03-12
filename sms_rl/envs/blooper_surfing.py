@@ -108,13 +108,28 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
         )
 
     def _normalize_frame(self, frame: np.ndarray) -> np.ndarray:
-        if self.config.observation.grayscale and frame.ndim == 2:
+        target_h = self.config.observation.height
+        target_w = self.config.observation.width
+
+        if self.config.observation.grayscale:
+            gray = frame if frame.ndim == 2 else frame.mean(axis=2).astype(np.uint8)
+            resized = self._resize_nearest(gray, target_h, target_w)
+            return resized.astype(np.uint8, copy=False)
+
+        color = frame
+        if color.ndim == 2:
+            color = np.repeat(color[:, :, None], 3, axis=2)
+        resized = self._resize_nearest(color, target_h, target_w)
+        return np.transpose(resized.astype(np.uint8, copy=False), (2, 0, 1))
+
+    @staticmethod
+    def _resize_nearest(frame: np.ndarray, target_h: int, target_w: int) -> np.ndarray:
+        src_h, src_w = frame.shape[:2]
+        if src_h == target_h and src_w == target_w:
             return frame
-        if self.config.observation.grayscale and frame.ndim == 3:
-            return frame.mean(axis=2).astype(np.uint8)
-        if not self.config.observation.grayscale and frame.ndim == 2:
-            return np.repeat(frame[None, :, :], 3, axis=0)
-        return np.transpose(frame, (2, 0, 1))
+        y_idx = np.linspace(0, src_h - 1, target_h).astype(np.int32)
+        x_idx = np.linspace(0, src_w - 1, target_w).astype(np.int32)
+        return frame[y_idx][:, x_idx]
 
     def _stacked_observation(self) -> np.ndarray:
         frames = list(self._frame_stack)

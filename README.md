@@ -54,6 +54,23 @@ Install the extra dependencies with:
 pip install -e .[windows-dolphin]
 ```
 
+For PPO training and eval video export, install:
+
+```bash
+pip install -e .[training,windows-dolphin]
+```
+
+If PPO prints `Using cpu device` and you want GPU training on NVIDIA, install
+CUDA-enabled PyTorch in the venv:
+
+```bash
+python -m pip uninstall -y torch
+python -m pip install --index-url https://download.pytorch.org/whl/cu124 torch
+python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no cuda')"
+```
+
+Expected output should include `+cu124` and `True` for CUDA availability.
+
 The driver still requires project-specific configuration before it can run:
 
 - Dolphin executable path
@@ -126,6 +143,48 @@ Baseline comparison (5 neutral + 5 random episodes):
 
 ```bash
 powershell -ExecutionPolicy Bypass -File .\scripts\run_dolphin_baselines.ps1
+```
+
+## PPO Training
+
+Run a first training pass with checkpointing + periodic eval:
+
+```bash
+python -m sms_rl.train_ppo ^
+  --run-name ppo_blooper_v1 ^
+  --total-timesteps 50000 ^
+  --eval-every 5000 ^
+  --eval-episodes 3 ^
+  --checkpoint-every 5000 ^
+  --dolphin-exe "C:\Users\justi\Downloads\dolphin-2512-x64\Dolphin-x64\Dolphin.exe" ^
+  --game-path "C:\Users\justi\Downloads\Super Mario Sunshine (2002)(Nintendo)(US).iso" ^
+  --save-state "C:\Users\justi\Downloads\purple-blooper-start.sav" ^
+  --user-path "C:\Users\justi\Projects\super-mario-sunshine-RL\dolphin_user_profile" ^
+  --window-title "Super Mario Sunshine" ^
+  --control-mode vgamepad ^
+  --capture-fps 30 ^
+  --progress-address 0x80FA50D4 --progress-type float ^
+  --finished-address 0x805F64C6 --finished-type byte --finished-value 1 ^
+  --failed-address 0x804257D3 --failed-type byte --failed-value 1
+```
+
+To force GPU in training, add:
+
+```bash
+--device cuda
+```
+
+Outputs are written to `runs/<run-name>/`:
+
+- `checkpoints/*.zip`
+- `eval/eval_metrics.csv`
+- `eval/*.mp4` (if `--record-eval-video`)
+- TensorBoard logs in `tensorboard/`
+
+PowerShell wrapper with current local paths:
+
+```bash
+powershell -ExecutionPolicy Bypass -File .\scripts\run_dolphin_ppo_train.ps1
 ```
 
 Current baseline scripts are configured for vgamepad control mode.
