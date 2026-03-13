@@ -30,8 +30,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--episodes", type=int, default=2)
     parser.add_argument("--max-decisions", type=int, default=60)
+    parser.add_argument("--probe-seconds", type=float, default=6.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output-csv", type=Path, default=Path("action_timing_probe.csv"))
+    parser.add_argument(
+        "--log-every-step",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
+    parser.add_argument(
+        "--policy",
+        choices=("random", "scripted-midtest"),
+        default="random",
+        help="random: random actions. scripted-midtest: deterministic half-second pulse pattern.",
+    )
 
     parser.add_argument("--obs-width", type=int, default=96)
     parser.add_argument("--obs-height", type=int, default=72)
@@ -144,6 +156,24 @@ def build_env(args: argparse.Namespace) -> BlooperSurfingEnv:
     return BlooperSurfingEnv(config=env_config, driver=driver)
 
 
+def scripted_midtest_action(decision_in_episode: int, elapsed_s: float) -> int:
+    # Action map: 0=LEFT, 1=NEUTRAL, 2=RIGHT, 3=JUMP
+    # Requested probe pattern:
+    # 0.5s LEFT for 0.2s, 1.0s RIGHT for 0.2s, ... alternating until 4.0s.
+    # Outside pulse windows: NEUTRAL.
+    del decision_in_episode
+    first_pulse_s = 0.5
+    pulse_interval_s = 0.5
+    pulse_width_s = 0.2
+    pulse_count = 8
+    for pulse_idx in range(pulse_count):
+        start_s = first_pulse_s + pulse_idx * pulse_interval_s
+        end_s = start_s + pulse_width_s
+        if start_s <= elapsed_s < end_s:
+            return 0 if (pulse_idx % 2 == 0) else 2
+    return 1
+
+
 def main() -> None:
     args = build_parser().parse_args()
     rng = random.Random(args.seed)
@@ -159,15 +189,42 @@ def main() -> None:
             reset_start = time.perf_counter()
             obs, info = env.reset()
             reset_end = time.perf_counter()
+            reset_progress = float(info.get("progress", 0.0))
+            reset_failed = bool(info.get("mission_failed", False))
+            reset_finished = bool(info.get("mission_finished", False))
+            print(
+                f"[episode {episode_idx}] reset_wall_s={reset_end - reset_start:.3f} "
+                f"progress={reset_progress:.6f} "
+                f"finished={reset_finished} failed={reset_failed}",
+                flush=True,
+            )
             del obs, info
             episode_start = time.perf_counter()
             reset_overheads.append(reset_end - reset_start)
             terminated = False
             truncated = False
+            last_action: int | None = None
+            decision_in_episode = 0
 
             while not terminated and not truncated and total_decisions < args.max_decisions:
-                action = rng.randrange(env.action_space.n)
                 t0 = time.perf_counter()
+                elapsed_ep_s = t0 - episode_start
+                if elapsed_ep_s >= args.probe_seconds:
+                    break
+
+                decision_in_episode += 1
+                if args.policy == "scripted-midtest":
+                    action = scripted_midtest_action(decision_in_episode, elapsed_ep_s)
+                else:
+                    action = rng.randrange(env.action_space.n)
+
+                if args.log_every_step or action != last_action:
+                    print(
+                        f"[episode {episode_idx}] step={decision_in_episode} t={elapsed_ep_s:.3f}s action={action}",
+                        flush=True,
+                    )
+                    last_action = action
+
                 _, reward, terminated, truncated, info = env.step(action)
                 t1 = time.perf_counter()
                 step_dt = t1 - t0

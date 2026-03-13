@@ -58,7 +58,14 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
         self._last_progress = state.progress
         self._steps = 0
         self._episode_start_s = time.monotonic()
-        return self._stacked_observation(), dict(state.info)
+        info = dict(state.info)
+        info["mission_finished"] = state.mission_finished
+        info["mission_failed"] = state.mission_failed
+        info["episode_steps"] = self._steps
+        info["episode_elapsed_seconds"] = 0.0
+        info["timeout_truncated"] = False
+        info["progress"] = state.progress
+        return self._stacked_observation(), info
 
     def step(
         self,
