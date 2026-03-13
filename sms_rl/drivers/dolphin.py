@@ -87,6 +87,8 @@ class DolphinDriverConfig:
     save_state_slot: int = 1
     initialize_reset_slot_on_launch: bool = True
     post_soft_reset_delay_s: float = 0.35
+    soft_reset_attempts: int = 3
+    soft_reset_progress_tolerance: float = 5.0
     launch_retries: int = 4
     launch_retry_backoff_s: float = 0.75
 
@@ -110,6 +112,7 @@ class DolphinWindowsDriver:
         self._memory = self._load_memory_engine()
         self._dxcam = None
         self._slot_initialized = False
+        self._expected_reset_progress: float | None = None
 
     @property
     def _use_vgamepad(self) -> bool:
@@ -193,6 +196,11 @@ class DolphinWindowsDriver:
                     and self.config.initialize_reset_slot_on_launch
                 ):
                     self._initialize_reset_slot()
+                try:
+                    start_state = self._read_state()
+                    self._expected_reset_progress = float(start_state.progress)
+                except Exception:
+                    self._expected_reset_progress = None
                 return
             except Exception as exc:
                 last_exc = exc
@@ -217,13 +225,35 @@ class DolphinWindowsDriver:
                     "Cannot soft reset without initial save state. Configure --save-state."
                 )
             self._initialize_reset_slot()
-        self._load_state_slot()
-        time.sleep(self.config.post_soft_reset_delay_s)
-        # DXGI duplication can become stale on in-process load-state transitions.
-        # Recreate capture device once per soft reset for stability.
-        self._recover_camera(hard=True)
-        if not self._memory.is_hooked():
-            self._hook_memory()
+        attempts = max(1, self.config.soft_reset_attempts)
+        last_exc: Exception | None = None
+        for _attempt in range(attempts):
+            try:
+                self._load_state_slot()
+                time.sleep(self.config.post_soft_reset_delay_s)
+                # DXGI duplication can become stale on in-process load-state transitions.
+                self._recover_camera(hard=True)
+                if not self._memory.is_hooked():
+                    self._hook_memory()
+                state = self._read_state()
+                if self._is_soft_reset_state_valid(state):
+                    return
+            except Exception as exc:
+                last_exc = exc
+            time.sleep(0.08)
+        raise DolphinDriverError(
+            f"Soft reset to savestate slot failed after {attempts} attempts."
+        ) from last_exc
+
+    def _is_soft_reset_state_valid(self, state: StepState) -> bool:
+        if state.mission_finished or state.mission_failed:
+            return False
+        if self._expected_reset_progress is None:
+            return True
+        return (
+            abs(float(state.progress) - self._expected_reset_progress)
+            <= self.config.soft_reset_progress_tolerance
+        )
 
     def _initialize_reset_slot(self) -> None:
         self._save_state_slot()

@@ -24,9 +24,11 @@ $ES_DISPLAY_REQUIRED = [uint32]0x00000002
 
 $runName = "ppo_blooper_v1"
 $totalTimesteps = "50000"
-$evalEvery = "5000"
-$checkpointEvery = "5000"
+$evalEvery = "2000"
+$checkpointEvery = "2000"
 $evalEpisodes = "3"
+$nSteps = "128"
+$actionRepeat = "2"
 
 try {
   $awakeFlags = [uint32]($ES_CONTINUOUS -bor $ES_SYSTEM_REQUIRED -bor $ES_DISPLAY_REQUIRED)
@@ -35,10 +37,12 @@ try {
   & $python -m sms_rl.train_ppo `
     --run-name $runName `
     --device cuda `
+    --n-steps $nSteps `
     --total-timesteps $totalTimesteps `
     --eval-every $evalEvery `
     --eval-episodes $evalEpisodes `
     --checkpoint-every $checkpointEvery `
+    --action-repeat $actionRepeat `
     --max-episode-seconds 45 `
     --dolphin-exe $dolphinExe `
     --game-path $gamePath `
@@ -47,7 +51,7 @@ try {
     --window-title $windowTitle `
     --control-mode vgamepad `
     --capture-fps 30 `
-    --restart-on-reset `
+    --no-restart-on-reset `
     --save-state-slot 1 `
     --progress-address $progressAddress `
     --progress-type float `
