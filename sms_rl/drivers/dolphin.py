@@ -123,8 +123,6 @@ class DolphinWindowsDriver:
         return self.config.control_mode == "vgamepad"
 
     def reset(self) -> StepState:
-        reset_start = time.perf_counter()
-        reset_start_epoch = time.time()
         used_soft_reset = False
         recovered_via_relaunch = False
         if self.config.restart_on_reset or self._process is None:
@@ -141,6 +139,7 @@ class DolphinWindowsDriver:
         self._focus_window()
         self._center_steering()
         time.sleep(self.config.post_reset_delay_s)
+
         try:
             state = self._read_state()
         except Exception:
@@ -154,11 +153,6 @@ class DolphinWindowsDriver:
                 recovered_via_relaunch = True
             else:
                 raise
-        reset_end = time.perf_counter()
-        reset_end_epoch = time.time()
-        state.info["driver_reset_started_epoch_s"] = reset_start_epoch
-        state.info["driver_reset_finished_epoch_s"] = reset_end_epoch
-        state.info["driver_reset_elapsed_s"] = reset_end - reset_start
         state.info["driver_reset_used_soft_reset"] = used_soft_reset
         state.info["driver_reset_recovered_via_relaunch"] = recovered_via_relaunch
         return state
@@ -204,7 +198,8 @@ class DolphinWindowsDriver:
         for attempt in range(retries):
             try:
                 self._process = self._launch_dolphin()
-                time.sleep(self.config.post_launch_delay_s + (attempt * 0.15))
+                post_launch_sleep = self.config.post_launch_delay_s + (attempt * 0.15)
+                time.sleep(post_launch_sleep)
                 self._window_handle = self._wait_for_window()
                 self._capture_region = self.config.capture.region or _get_client_rect(
                     self._window_handle
@@ -254,7 +249,7 @@ class DolphinWindowsDriver:
             self._initialize_reset_slot()
         attempts = max(1, self.config.soft_reset_attempts)
         last_exc: Exception | None = None
-        for _attempt in range(attempts):
+        for attempt in range(attempts):
             try:
                 self._load_state_slot()
                 time.sleep(self.config.post_soft_reset_delay_s)

@@ -4,7 +4,6 @@ import argparse
 import csv
 import random
 import time
-from datetime import datetime
 from pathlib import Path
 
 from sms_rl.config import EnvConfig, EpisodeConfig, ObservationConfig
@@ -26,18 +25,13 @@ def parse_address(value: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Probe action-decision timing and log per-step latency to CSV."
+        description="Probe action decisions and log per-step outcomes to CSV."
     )
     parser.add_argument("--episodes", type=int, default=2)
     parser.add_argument("--max-decisions", type=int, default=60)
     parser.add_argument("--probe-seconds", type=float, default=6.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output-csv", type=Path, default=Path("action_timing_probe.csv"))
-    parser.add_argument(
-        "--log-every-step",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-    )
     parser.add_argument(
         "--policy",
         choices=("random", "scripted-midtest"),
@@ -193,39 +187,14 @@ def main() -> None:
     env = build_env(args)
     rows: list[list[object]] = []
     total_decisions = 0
-    run_start = time.perf_counter()
-    cumulative_step_wall_s = 0.0
-    reset_overheads: list[float] = []
 
     try:
         for episode_idx in range(args.episodes):
-            reset_start = time.perf_counter()
             obs, info = env.reset()
-            reset_end = time.perf_counter()
-            reset_progress = float(info.get("progress", 0.0))
-            reset_failed = bool(info.get("mission_failed", False))
-            reset_finished = bool(info.get("mission_finished", False))
-            env_reset_elapsed = float(info.get("env_reset_elapsed_s", 0.0))
-            driver_reset_elapsed = float(info.get("driver_reset_elapsed_s", 0.0))
-            used_soft_reset = bool(info.get("driver_reset_used_soft_reset", False))
-            recovered_relaunch = bool(
-                info.get("driver_reset_recovered_via_relaunch", False)
-            )
-            print(
-                f"[episode {episode_idx}] reset_wall_s={reset_end - reset_start:.3f} "
-                f"env_reset_s={env_reset_elapsed:.3f} "
-                f"driver_reset_s={driver_reset_elapsed:.3f} "
-                f"soft_reset={used_soft_reset} relaunch_recovery={recovered_relaunch} "
-                f"progress={reset_progress:.6f} "
-                f"finished={reset_finished} failed={reset_failed}",
-                flush=True,
-            )
             del obs, info
             episode_start = time.perf_counter()
-            reset_overheads.append(reset_end - reset_start)
             terminated = False
             truncated = False
-            last_action: int | None = None
             decision_in_episode = 0
 
             while not terminated and not truncated and total_decisions < args.max_decisions:
@@ -240,27 +209,13 @@ def main() -> None:
                 else:
                     action = rng.randrange(env.action_space.n)
 
-                if args.log_every_step or action != last_action:
-                    print(
-                        f"[episode {episode_idx}] step={decision_in_episode} t={elapsed_ep_s:.3f}s action={action}",
-                        flush=True,
-                    )
-                    last_action = action
-
                 _, reward, terminated, truncated, info = env.step(action)
-                t1 = time.perf_counter()
-                step_dt = t1 - t0
                 total_decisions += 1
-                cumulative_step_wall_s += step_dt
                 rows.append(
                     [
-                        datetime.now().isoformat(),
                         episode_idx,
                         total_decisions,
                         action,
-                        round(t0 - run_start, 6),
-                        round(step_dt, 6),
-                        round(t1 - episode_start, 6),
                         round(float(reward), 6),
                         bool(terminated),
                         bool(truncated),
@@ -280,13 +235,9 @@ def main() -> None:
         writer = csv.writer(handle)
         writer.writerow(
             [
-                "wall_time_iso",
                 "episode",
                 "decision_idx",
                 "action",
-                "since_run_start_s",
-                "step_wall_dt_s",
-                "since_episode_start_s",
                 "reward",
                 "terminated",
                 "truncated",
@@ -296,25 +247,6 @@ def main() -> None:
             ]
         )
         writer.writerows(rows)
-
-    elapsed = time.perf_counter() - run_start
-    dps_end_to_end = (total_decisions / elapsed) if elapsed > 0 else 0.0
-    dps_active = (
-        (total_decisions / cumulative_step_wall_s)
-        if cumulative_step_wall_s > 0
-        else 0.0
-    )
-    reset_total = sum(reset_overheads)
-    reset_mean = (reset_total / len(reset_overheads)) if reset_overheads else 0.0
-    print(f"Wrote: {args.output_csv}")
-    print(f"Decisions: {total_decisions}")
-    print(f"Elapsed_s: {elapsed:.3f}")
-    print(f"Decisions_per_second_end_to_end: {dps_end_to_end:.3f}")
-    print(f"Active_step_time_s: {cumulative_step_wall_s:.3f}")
-    print(f"Decisions_per_second_active: {dps_active:.3f}")
-    print(f"Reset_count: {len(reset_overheads)}")
-    print(f"Reset_total_s: {reset_total:.3f}")
-    print(f"Reset_mean_s: {reset_mean:.3f}")
 
 
 if __name__ == "__main__":

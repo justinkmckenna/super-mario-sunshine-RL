@@ -13,9 +13,9 @@ $ErrorActionPreference = "Stop"
   --window-title "Super Mario Sunshine" `
   --control-mode vgamepad `
   --capture-fps 30 `
-  --post-launch-delay-seconds 0.5 `
-  --post-reset-delay-seconds 0.05 `
-  --window-stable-seconds 0.2 `
+  --post-launch-delay-seconds 0 `
+  --post-reset-delay-seconds 0. `
+  --window-stable-seconds 0 `
   --pause-on-reset `
   --log-every-step `
   --no-dolphin-batch-mode `
