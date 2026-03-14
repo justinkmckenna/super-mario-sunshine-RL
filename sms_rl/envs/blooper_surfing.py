@@ -46,6 +46,8 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
         seed: int | None = None,
         options: dict[str, Any] | None = None,
     ) -> tuple[np.ndarray, dict[str, Any]]:
+        env_reset_start = time.perf_counter()
+        env_reset_start_epoch = time.time()
         super().reset(seed=seed)
         del options
 
@@ -65,6 +67,11 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
         info["episode_elapsed_seconds"] = 0.0
         info["timeout_truncated"] = False
         info["progress"] = state.progress
+        env_reset_end = time.perf_counter()
+        env_reset_end_epoch = time.time()
+        info["env_reset_started_epoch_s"] = env_reset_start_epoch
+        info["env_reset_finished_epoch_s"] = env_reset_end_epoch
+        info["env_reset_elapsed_s"] = env_reset_end - env_reset_start
         return self._stacked_observation(), info
 
     def step(

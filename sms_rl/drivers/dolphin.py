@@ -123,7 +123,10 @@ class DolphinWindowsDriver:
         return self.config.control_mode == "vgamepad"
 
     def reset(self) -> StepState:
+        reset_start = time.perf_counter()
+        reset_start_epoch = time.time()
         used_soft_reset = False
+        recovered_via_relaunch = False
         if self.config.restart_on_reset or self._process is None:
             self._restart_dolphin()
         else:
@@ -133,12 +136,13 @@ class DolphinWindowsDriver:
             except Exception:
                 # Fall back to full relaunch if in-process reset fails.
                 self._restart_dolphin()
+                recovered_via_relaunch = True
 
         self._focus_window()
         self._center_steering()
         time.sleep(self.config.post_reset_delay_s)
         try:
-            return self._read_state()
+            state = self._read_state()
         except Exception:
             # If soft reset left capture/memory in a bad state, recover by relaunching.
             if used_soft_reset:
@@ -146,8 +150,18 @@ class DolphinWindowsDriver:
                 self._focus_window()
                 self._center_steering()
                 time.sleep(self.config.post_reset_delay_s)
-                return self._read_state()
-            raise
+                state = self._read_state()
+                recovered_via_relaunch = True
+            else:
+                raise
+        reset_end = time.perf_counter()
+        reset_end_epoch = time.time()
+        state.info["driver_reset_started_epoch_s"] = reset_start_epoch
+        state.info["driver_reset_finished_epoch_s"] = reset_end_epoch
+        state.info["driver_reset_elapsed_s"] = reset_end - reset_start
+        state.info["driver_reset_used_soft_reset"] = used_soft_reset
+        state.info["driver_reset_recovered_via_relaunch"] = recovered_via_relaunch
+        return state
 
     def step(self, action: SteeringAction, repeat: int) -> StepState:
         self._ensure_runtime_ready()

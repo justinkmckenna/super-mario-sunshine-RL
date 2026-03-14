@@ -205,8 +205,17 @@ def main() -> None:
             reset_progress = float(info.get("progress", 0.0))
             reset_failed = bool(info.get("mission_failed", False))
             reset_finished = bool(info.get("mission_finished", False))
+            env_reset_elapsed = float(info.get("env_reset_elapsed_s", 0.0))
+            driver_reset_elapsed = float(info.get("driver_reset_elapsed_s", 0.0))
+            used_soft_reset = bool(info.get("driver_reset_used_soft_reset", False))
+            recovered_relaunch = bool(
+                info.get("driver_reset_recovered_via_relaunch", False)
+            )
             print(
                 f"[episode {episode_idx}] reset_wall_s={reset_end - reset_start:.3f} "
+                f"env_reset_s={env_reset_elapsed:.3f} "
+                f"driver_reset_s={driver_reset_elapsed:.3f} "
+                f"soft_reset={used_soft_reset} relaunch_recovery={recovered_relaunch} "
                 f"progress={reset_progress:.6f} "
                 f"finished={reset_finished} failed={reset_failed}",
                 flush=True,
