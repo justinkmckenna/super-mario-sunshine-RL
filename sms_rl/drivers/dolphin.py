@@ -91,6 +91,9 @@ class DolphinDriverConfig:
     soft_reset_progress_tolerance: float = 5.0
     launch_retries: int = 4
     launch_retry_backoff_s: float = 0.75
+    pause_on_reset: bool = False
+    pause_toggle_vk: int = 0x79  # F10 by default in Dolphin
+    post_pause_toggle_delay_s: float = 0.05
 
 
 class DolphinWindowsDriver:
@@ -113,6 +116,7 @@ class DolphinWindowsDriver:
         self._dxcam = None
         self._slot_initialized = False
         self._expected_reset_progress: float | None = None
+        self._needs_unpause_on_first_step = False
 
     @property
     def _use_vgamepad(self) -> bool:
@@ -148,6 +152,10 @@ class DolphinWindowsDriver:
     def step(self, action: SteeringAction, repeat: int) -> StepState:
         self._ensure_runtime_ready()
         self._focus_window()
+        if self._needs_unpause_on_first_step:
+            self._toggle_pause()
+            time.sleep(self.config.post_pause_toggle_delay_s)
+            self._needs_unpause_on_first_step = False
         repeat_count = max(1, repeat)
         for _ in range(repeat_count):
             self._apply_steering(action)
@@ -187,6 +195,11 @@ class DolphinWindowsDriver:
                 self._capture_region = self.config.capture.region or _get_client_rect(
                     self._window_handle
                 )
+                if self.config.pause_on_reset:
+                    self._focus_window()
+                    self._toggle_pause()
+                    time.sleep(self.config.post_pause_toggle_delay_s)
+                    self._needs_unpause_on_first_step = True
                 self._init_camera()
                 self._hook_memory()
                 self._warmup_capture()
@@ -237,6 +250,10 @@ class DolphinWindowsDriver:
                     self._hook_memory()
                 state = self._read_state()
                 if self._is_soft_reset_state_valid(state):
+                    if self.config.pause_on_reset:
+                        self._toggle_pause()
+                        time.sleep(self.config.post_pause_toggle_delay_s)
+                        self._needs_unpause_on_first_step = True
                     return
             except Exception as exc:
                 last_exc = exc
@@ -586,6 +603,9 @@ class DolphinWindowsDriver:
             return
         user32 = ctypes.windll.user32
         user32.SetForegroundWindow(self._window_handle)
+
+    def _toggle_pause(self) -> None:
+        _tap_key(self.config.pause_toggle_vk, hold_s=0.04)
 
     def _load_memory_engine(self):
         try:

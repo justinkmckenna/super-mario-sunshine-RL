@@ -73,6 +73,15 @@ def build_parser() -> argparse.ArgumentParser:
         default="vgamepad",
     )
     parser.add_argument("--capture-fps", type=int, default=30)
+    parser.add_argument("--post-launch-delay-seconds", type=float, default=0.5)
+    parser.add_argument("--post-reset-delay-seconds", type=float, default=0.05)
+    parser.add_argument("--window-stable-seconds", type=float, default=0.2)
+    parser.add_argument(
+        "--pause-on-reset",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Pause emulator at reset completion; first step unpauses then applies action.",
+    )
     parser.add_argument(
         "--restart-on-reset",
         action=argparse.BooleanOptionalAction,
@@ -145,12 +154,16 @@ def build_env(args: argparse.Namespace) -> BlooperSurfingEnv:
                 batch_mode=args.dolphin_batch_mode,
                 user_path=args.user_path,
                 window_title_contains=args.window_title,
+                stable_window_time_s=args.window_stable_seconds,
             ),
             capture=CaptureConfig(target_fps=args.capture_fps),
             memory=memory,
             control_mode=args.control_mode,
             restart_on_reset=args.restart_on_reset,
             save_state_slot=args.save_state_slot,
+            post_launch_delay_s=args.post_launch_delay_seconds,
+            post_reset_delay_s=args.post_reset_delay_seconds,
+            pause_on_reset=args.pause_on_reset,
         )
     )
     return BlooperSurfingEnv(config=env_config, driver=driver)
