@@ -84,13 +84,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="vgamepad",
     )
     parser.add_argument("--capture-fps", type=int, default=30)
-    parser.add_argument(
-        "--restart-on-reset",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="If false, reset episodes by loading Dolphin savestate slot instead of relaunching Dolphin.",
-    )
-    parser.add_argument("--save-state-slot", type=int, default=1)
+    parser.add_argument("--post-launch-delay-seconds", type=float, default=0.5)
+    parser.add_argument("--post-reset-delay-seconds", type=float, default=0.05)
+    parser.add_argument("--startup-forward-seconds", type=float, default=0.0)
+    parser.add_argument("--startup-forward-magnitude", type=float, default=1.0)
+    parser.add_argument("--startup-settle-seconds", type=float, default=0.1)
+    parser.add_argument("--window-stable-seconds", type=float, default=0.2)
     parser.add_argument("--progress-address", type=parse_address, required=True)
     parser.add_argument(
         "--progress-type",
@@ -158,10 +157,16 @@ def build_env_factory(args: argparse.Namespace) -> Callable[[], BlooperSurfingEn
                 batch_mode=args.dolphin_batch_mode,
                 user_path=args.user_path,
                 window_title_contains=args.window_title,
+                stable_window_time_s=args.window_stable_seconds,
             ),
             capture=CaptureConfig(target_fps=args.capture_fps),
             memory=memory,
             control_mode=args.control_mode,
+            post_launch_delay_s=args.post_launch_delay_seconds,
+            post_reset_delay_s=args.post_reset_delay_seconds,
+            startup_forward_seconds=args.startup_forward_seconds,
+            startup_forward_magnitude=args.startup_forward_magnitude,
+            startup_settle_seconds=args.startup_settle_seconds,
         )
         return BlooperSurfingEnv(config=env_config, driver=DolphinWindowsDriver(driver_config))
 

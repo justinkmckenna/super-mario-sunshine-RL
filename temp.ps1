@@ -2,10 +2,10 @@ $ErrorActionPreference = "Stop"
 
 & ".\.venv\Scripts\python" "scripts\action_timing_probe.py" `
   --policy scripted-midtest `
-  --episodes 1 `
+  --episodes 30 `
   --probe-seconds 6 `
-  --max-decisions 80 `
-  --output-csv "C:\Users\justi\Downloads\action_timing_midtest.csv" `
+  --max-decisions 2400 `
+  --output-csv "C:\Users\justi\Downloads\action_timing_smoke_30eps.csv" `
   --dolphin-exe "C:\Users\justi\Downloads\dolphin-2512-x64\Dolphin-x64\Dolphin.exe" `
   --game-path "C:\Users\justi\Downloads\Super Mario Sunshine (2002)(Nintendo)(US).iso" `
   --save-state "C:\Users\justi\Downloads\behind-purple-blooper-start.sav" `

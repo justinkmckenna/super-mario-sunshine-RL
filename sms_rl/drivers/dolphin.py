@@ -171,11 +171,13 @@ class DolphinWindowsDriver:
         self._process = None
 
     def _restart_dolphin(self) -> None:
+        self._center_steering()
         self._terminate_existing_process()
         retries = max(1, self.config.launch_retries)
         last_exc: Exception | None = None
         for attempt in range(retries):
             try:
+                self._center_steering()
                 self._process = self._launch_dolphin()
                 post_launch_sleep = self.config.post_launch_delay_s + (attempt * 0.15)
                 time.sleep(post_launch_sleep)
@@ -203,6 +205,7 @@ class DolphinWindowsDriver:
         ) from last_exc
 
     def _terminate_existing_process(self) -> None:
+        self._center_steering()
         self._unhook_memory()
         if self._camera is not None:
             try:

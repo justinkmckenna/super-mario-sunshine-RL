@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $python = ".\.venv\Scripts\python.exe"
 $dolphinExe = "C:\Users\justi\Downloads\dolphin-2512-x64\Dolphin-x64\Dolphin.exe"
 $gamePath = "C:\Users\justi\Downloads\Super Mario Sunshine (2002)(Nintendo)(US).iso"
-$saveStatePath = "C:\Users\justi\Downloads\purple-blooper-start.sav"
+$saveStatePath = "C:\Users\justi\Downloads\behind-purple-blooper-start.sav"
 $userPath = "C:\Users\justi\Projects\super-mario-sunshine-RL\dolphin_user_profile"
 $windowTitle = "Super Mario Sunshine"
 
@@ -22,8 +22,8 @@ $ES_CONTINUOUS = [Convert]::ToUInt32("80000000", 16)
 $ES_SYSTEM_REQUIRED = [uint32]0x00000001
 $ES_DISPLAY_REQUIRED = [uint32]0x00000002
 
-$runName = "ppo_blooper_v1"
-$totalTimesteps = "50000"
+$runName = "ppo_smoke_prerace_v1"
+$totalTimesteps = "10000"
 $evalEvery = "2000"
 $checkpointEvery = "2000"
 $evalEpisodes = "3"
@@ -51,8 +51,12 @@ try {
     --window-title $windowTitle `
     --control-mode vgamepad `
     --capture-fps 30 `
-    --no-restart-on-reset `
-    --save-state-slot 1 `
+    --post-launch-delay-seconds 0 `
+    --post-reset-delay-seconds 0 `
+    --startup-forward-seconds 1.0 `
+    --startup-forward-magnitude 1.0 `
+    --startup-settle-seconds 0.1 `
+    --window-stable-seconds 0 `
     --progress-address $progressAddress `
     --progress-type float `
     --finished-address $finishedAddress `
