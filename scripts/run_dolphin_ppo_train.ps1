@@ -22,7 +22,7 @@ $ES_CONTINUOUS = [Convert]::ToUInt32("80000000", 16)
 $ES_SYSTEM_REQUIRED = [uint32]0x00000001
 $ES_DISPLAY_REQUIRED = [uint32]0x00000002
 
-$runName = "ppo_smoke_prerace_v1"
+$runName = "ppo_smoke_prerace_v2"
 $totalTimesteps = "10000"
 $evalEvery = "2000"
 $checkpointEvery = "2000"
@@ -49,6 +49,7 @@ try {
     --save-state $saveStatePath `
     --user-path $userPath `
     --window-title $windowTitle `
+    --no-dolphin-batch-mode `
     --render-to-main `
     --control-mode vgamepad `
     --capture-backend mss `
