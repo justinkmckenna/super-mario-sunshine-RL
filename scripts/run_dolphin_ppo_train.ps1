@@ -49,7 +49,9 @@ try {
     --save-state $saveStatePath `
     --user-path $userPath `
     --window-title $windowTitle `
+    --render-to-main `
     --control-mode vgamepad `
+    --capture-backend mss `
     --capture-fps 30 `
     --post-launch-delay-seconds 0 `
     --post-reset-delay-seconds 0 `

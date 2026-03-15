@@ -43,6 +43,7 @@ class DolphinLaunchConfig:
 @dataclass(slots=True)
 class CaptureConfig:
     region: tuple[int, int, int, int] | None = None
+    backend: Literal["dxcam", "mss"] = "dxcam"
     output_color: Literal["gray", "rgb", "bgr"] = "gray"
     target_fps: int = 60
     warmup_frames: int = 10
@@ -157,12 +158,8 @@ class DolphinWindowsDriver:
 
     def close(self) -> None:
         self._center_steering()
-        if self._camera is not None:
-            try:
-                self._camera.stop()
-            except Exception:
-                pass
-            self._camera = None
+        self._close_camera()
+        self._camera = None
 
         self._unhook_memory()
 
@@ -207,12 +204,8 @@ class DolphinWindowsDriver:
     def _terminate_existing_process(self) -> None:
         self._center_steering()
         self._unhook_memory()
-        if self._camera is not None:
-            try:
-                self._camera.stop()
-            except Exception:
-                pass
-            self._camera = None
+        self._close_camera()
+        self._camera = None
 
         if self._process is not None and self._process.poll() is None:
             self._shutdown_process_gracefully()
@@ -306,21 +299,38 @@ class DolphinWindowsDriver:
         )
 
     def _init_camera(self) -> None:
-        try:
-            import dxcam  # type: ignore
-        except ImportError as exc:
-            raise DolphinDriverError(
-                "DXcam is not installed. Install with `pip install -e .[windows-dolphin]`."
-            ) from exc
+        if self.config.capture.backend == "dxcam":
+            try:
+                import dxcam  # type: ignore
+            except ImportError as exc:
+                raise DolphinDriverError(
+                    "DXcam is not installed. Install with `pip install -e .[windows-dolphin]`."
+                ) from exc
 
-        self._dxcam = dxcam
-        self._camera = self._create_camera()
+            self._dxcam = dxcam
+            self._camera = self._create_camera()
+            return
+
+        if self.config.capture.backend == "mss":
+            try:
+                import mss  # type: ignore
+            except ImportError as exc:
+                raise DolphinDriverError(
+                    "mss is not installed. Install with `pip install -e .[windows-dolphin]`."
+                ) from exc
+            self._dxcam = None
+            self._camera = mss.mss()
+            return
+
+        raise DolphinDriverError(
+            f"Unsupported capture backend: {self.config.capture.backend}"
+        )
 
     def _warmup_capture(self) -> None:
         if self._camera is None:
             return
         for _ in range(self.config.capture.warmup_frames):
-            frame = self._camera.grab(region=self._capture_region)
+            frame = self._grab_frame()
             if frame is not None:
                 break
             time.sleep(0.05)
@@ -362,7 +372,7 @@ class DolphinWindowsDriver:
         consecutive_grab_errors = 0
         for _attempt in range(12):
             try:
-                frame = self._camera.grab(region=self._capture_region)
+                frame = self._grab_frame()
             except Exception:
                 # DXGI duplication can transiently fail (e.g. keyed mutex abandoned).
                 # Only perform hard recovery after repeated failures.
@@ -388,6 +398,11 @@ class DolphinWindowsDriver:
         return contiguous
 
     def _recover_camera(self, *, hard: bool = False) -> None:
+        if self.config.capture.backend == "mss":
+            self._close_camera()
+            self._camera = self._create_camera()
+            return
+
         if self._dxcam is None:
             raise DolphinDriverError("DXcam module is not initialized.")
         if self._capture_region is None:
@@ -415,6 +430,14 @@ class DolphinWindowsDriver:
         self._camera = self._create_camera()
 
     def _create_camera(self):
+        if self.config.capture.backend == "mss":
+            try:
+                import mss  # type: ignore
+            except ImportError as exc:
+                raise DolphinDriverError(
+                    "mss is not installed. Install with `pip install -e .[windows-dolphin]`."
+                ) from exc
+            return mss.mss()
         if self._dxcam is None:
             raise DolphinDriverError("DXcam module is not initialized.")
         output_color = _to_dxcam_color(self.config.capture.output_color)
@@ -429,6 +452,47 @@ class DolphinWindowsDriver:
             raise DolphinDriverError(
                 "DXcam failed to start. Confirm the session has an active display."
             ) from exc
+
+    def _grab_frame(self):
+        if self._camera is None:
+            return None
+        if self.config.capture.backend == "mss":
+            if self._capture_region is None:
+                raise DolphinDriverError("Capture region is not initialized.")
+            left, top, right, bottom = self._capture_region
+            monitor = {
+                "left": int(left),
+                "top": int(top),
+                "width": int(right - left),
+                "height": int(bottom - top),
+            }
+            raw = np.asarray(self._camera.grab(monitor))
+            if raw.size == 0:
+                return None
+            # mss returns BGRA.
+            bgr = raw[:, :, :3]
+            if self.config.capture.output_color == "bgr":
+                return bgr
+            if self.config.capture.output_color == "rgb":
+                return bgr[:, :, ::-1]
+            return bgr.mean(axis=2).astype(np.uint8)
+        return self._camera.grab(region=self._capture_region)
+
+    def _close_camera(self) -> None:
+        if self._camera is None:
+            return
+        if self.config.capture.backend == "dxcam":
+            try:
+                self._camera.stop()
+            except Exception:
+                pass
+        else:
+            close_fn = getattr(self._camera, "close", None)
+            if callable(close_fn):
+                try:
+                    close_fn()
+                except Exception:
+                    pass
 
     def _create_gamepad(self):
         try:

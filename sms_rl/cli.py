@@ -42,9 +42,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--window-title", default="Dolphin")
     parser.add_argument(
+        "--render-to-main",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
+    parser.add_argument(
         "--control-mode",
         choices=("vgamepad", "keyboard"),
         default="vgamepad",
+    )
+    parser.add_argument(
+        "--capture-backend",
+        choices=("dxcam", "mss"),
+        default="dxcam",
     )
     parser.add_argument("--capture-fps", type=int, default=60)
     parser.add_argument(
@@ -120,8 +130,12 @@ def build_env(args: argparse.Namespace) -> BlooperSurfingEnv:
             batch_mode=args.dolphin_batch_mode,
             user_path=args.user_path,
             window_title_contains=args.window_title,
+            render_to_main=args.render_to_main,
         ),
-        capture=CaptureConfig(target_fps=args.capture_fps),
+        capture=CaptureConfig(
+            target_fps=args.capture_fps,
+            backend=args.capture_backend,
+        ),
         memory=memory,
         control_mode=args.control_mode,
     )

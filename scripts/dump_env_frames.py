@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import argparse
-import csv
-import random
-import time
 from pathlib import Path
+
+import imageio.v2 as imageio
+import numpy as np
 
 from sms_rl.config import EnvConfig, EpisodeConfig, ObservationConfig
 from sms_rl.drivers.dolphin import (
@@ -25,19 +25,10 @@ def parse_address(value: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Probe action decisions and log per-step outcomes to CSV."
+        description="Dump reset and early-step observations to PNG files for visual inspection."
     )
-    parser.add_argument("--episodes", type=int, default=2)
-    parser.add_argument("--max-decisions", type=int, default=60)
-    parser.add_argument("--probe-seconds", type=float, default=6.0)
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--output-csv", type=Path, default=Path("action_timing_probe.csv"))
-    parser.add_argument(
-        "--policy",
-        choices=("random", "scripted-midtest"),
-        default="random",
-        help="random: random actions. scripted-midtest: deterministic half-second pulse pattern.",
-    )
+    parser.add_argument("--output-dir", type=Path, default=Path("frame_dump"))
+    parser.add_argument("--steps", type=int, default=5)
 
     parser.add_argument("--obs-width", type=int, default=96)
     parser.add_argument("--obs-height", type=int, default=72)
@@ -77,12 +68,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="dxcam",
     )
     parser.add_argument("--capture-fps", type=int, default=30)
-    parser.add_argument("--post-launch-delay-seconds", type=float, default=0.5)
-    parser.add_argument("--post-reset-delay-seconds", type=float, default=0.05)
-    parser.add_argument("--startup-forward-seconds", type=float, default=0.0)
+    parser.add_argument("--post-launch-delay-seconds", type=float, default=0.0)
+    parser.add_argument("--post-reset-delay-seconds", type=float, default=0.0)
+    parser.add_argument("--startup-forward-seconds", type=float, default=1.0)
     parser.add_argument("--startup-forward-magnitude", type=float, default=1.0)
     parser.add_argument("--startup-settle-seconds", type=float, default=0.1)
-    parser.add_argument("--window-stable-seconds", type=float, default=0.2)
+    parser.add_argument("--window-stable-seconds", type=float, default=0.0)
+
     parser.add_argument("--progress-address", type=parse_address, required=True)
     parser.add_argument(
         "--progress-type",
@@ -168,90 +160,49 @@ def build_env(args: argparse.Namespace) -> BlooperSurfingEnv:
     return BlooperSurfingEnv(config=env_config, driver=driver)
 
 
-def scripted_midtest_action(decision_in_episode: int, elapsed_s: float) -> int:
-    # Action map: 0=LEFT, 1=NEUTRAL, 2=RIGHT, 3=JUMP
-    # Requested probe pattern:
-    # 0.5s LEFT for 0.2s, 1.0s RIGHT for 0.2s, ... alternating until 4.0s.
-    # Outside pulse windows: NEUTRAL.
-    del decision_in_episode
-    first_pulse_s = 0.5
-    pulse_interval_s = 0.5
-    pulse_width_s = 0.2
-    pulse_count = 8
-    for pulse_idx in range(pulse_count):
-        start_s = first_pulse_s + pulse_idx * pulse_interval_s
-        end_s = start_s + pulse_width_s
-        if start_s <= elapsed_s < end_s:
-            return 0 if (pulse_idx % 2 == 0) else 2
-    return 1
+def obs_to_frame(observation: np.ndarray, grayscale: bool) -> np.ndarray:
+    if grayscale:
+        last = observation[-1]
+        return np.repeat(last[:, :, None], 3, axis=2)
+    channels_per_frame = 3
+    frame = observation[-channels_per_frame:, :, :]
+    return np.transpose(frame, (1, 2, 0))
+
+
+def save_frame(path: Path, frame: np.ndarray) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    imageio.imwrite(path, frame)
 
 
 def main() -> None:
     args = build_parser().parse_args()
-    rng = random.Random(args.seed)
     env = build_env(args)
-    rows: list[list[object]] = []
-    total_decisions = 0
+    output_dir = args.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        for episode_idx in range(args.episodes):
-            obs, info = env.reset()
-            del obs, info
-            episode_start = time.perf_counter()
-            terminated = False
-            truncated = False
-            decision_in_episode = 0
+        obs, info = env.reset()
+        save_frame(output_dir / "reset_obs.png", obs_to_frame(obs, args.grayscale))
+        (output_dir / "reset_info.txt").write_text(f"{info}\n", encoding="utf-8")
 
-            while not terminated and not truncated and total_decisions < args.max_decisions:
-                t0 = time.perf_counter()
-                elapsed_ep_s = t0 - episode_start
-                if elapsed_ep_s >= args.probe_seconds:
-                    break
-
-                decision_in_episode += 1
-                if args.policy == "scripted-midtest":
-                    action = scripted_midtest_action(decision_in_episode, elapsed_ep_s)
-                else:
-                    action = rng.randrange(env.action_space.n)
-
-                _, reward, terminated, truncated, info = env.step(action)
-                total_decisions += 1
-                rows.append(
-                    [
-                        episode_idx,
-                        total_decisions,
-                        action,
-                        round(float(reward), 6),
-                        bool(terminated),
-                        bool(truncated),
-                        bool(info.get("mission_finished", False)),
-                        bool(info.get("mission_failed", False)),
-                        round(float(info.get("progress", 0.0)), 6),
-                    ]
-                )
-
-            if total_decisions >= args.max_decisions:
+        terminated = False
+        truncated = False
+        action_cycle = [0, 1, 2, 1]
+        for step_idx in range(args.steps):
+            if terminated or truncated:
                 break
+            action = action_cycle[step_idx % len(action_cycle)]
+            obs, reward, terminated, truncated, info = env.step(action)
+            save_frame(
+                output_dir / f"step_{step_idx:02d}_action_{action}.png",
+                obs_to_frame(obs, args.grayscale),
+            )
+            (output_dir / f"step_{step_idx:02d}_info.txt").write_text(
+                f"reward={reward}\nterminated={terminated}\ntruncated={truncated}\ninfo={info}\n",
+                encoding="utf-8",
+            )
     finally:
         env.close()
-
-    args.output_csv.parent.mkdir(parents=True, exist_ok=True)
-    with args.output_csv.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(
-            [
-                "episode",
-                "decision_idx",
-                "action",
-                "reward",
-                "terminated",
-                "truncated",
-                "mission_finished",
-                "mission_failed",
-                "progress",
-            ]
-        )
-        writer.writerows(rows)
 
 
 if __name__ == "__main__":

@@ -79,9 +79,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--window-title", default="Dolphin")
     parser.add_argument(
+        "--render-to-main",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+    )
+    parser.add_argument(
         "--control-mode",
         choices=("vgamepad", "keyboard"),
         default="vgamepad",
+    )
+    parser.add_argument(
+        "--capture-backend",
+        choices=("dxcam", "mss"),
+        default="dxcam",
     )
     parser.add_argument("--capture-fps", type=int, default=30)
     parser.add_argument("--post-launch-delay-seconds", type=float, default=0.5)
@@ -158,8 +168,12 @@ def build_env_factory(args: argparse.Namespace) -> Callable[[], BlooperSurfingEn
                 user_path=args.user_path,
                 window_title_contains=args.window_title,
                 stable_window_time_s=args.window_stable_seconds,
+                render_to_main=args.render_to_main,
             ),
-            capture=CaptureConfig(target_fps=args.capture_fps),
+            capture=CaptureConfig(
+                target_fps=args.capture_fps,
+                backend=args.capture_backend,
+            ),
             memory=memory,
             control_mode=args.control_mode,
             post_launch_delay_s=args.post_launch_delay_seconds,
