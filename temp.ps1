@@ -8,19 +8,18 @@ $ErrorActionPreference = "Stop"
   --output-csv "C:\Users\justi\Downloads\action_timing_midtest.csv" `
   --dolphin-exe "C:\Users\justi\Downloads\dolphin-2512-x64\Dolphin-x64\Dolphin.exe" `
   --game-path "C:\Users\justi\Downloads\Super Mario Sunshine (2002)(Nintendo)(US).iso" `
-  --save-state "C:\Users\justi\Downloads\purple-blooper-start.sav" `
+  --save-state "C:\Users\justi\Downloads\behind-purple-blooper-start.sav" `
   --user-path "C:\Users\justi\Projects\super-mario-sunshine-RL\dolphin_user_profile" `
   --window-title "Super Mario Sunshine" `
   --control-mode vgamepad `
   --capture-fps 30 `
   --post-launch-delay-seconds 0 `
   --post-reset-delay-seconds 0. `
+  --startup-forward-seconds 1.0 `
+  --startup-forward-magnitude 1.0 `
+  --startup-settle-seconds 0.1 `
   --window-stable-seconds 0 `
-  --pause-on-reset `
-  --log-every-step `
   --no-dolphin-batch-mode `
-  --no-restart-on-reset `
-  --save-state-slot 1 `
   --action-repeat 2 `
   --progress-address 0x80FA50D4 `
   --progress-type float `

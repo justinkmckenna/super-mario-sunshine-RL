@@ -52,6 +52,7 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
         del options
 
         state = self.driver.reset()
+        state = self.driver.start_episode()
         processed = self._normalize_frame(state.frame)
         self._frame_stack.clear()
         for _ in range(self.config.observation.frame_stack):

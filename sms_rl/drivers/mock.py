@@ -37,6 +37,9 @@ class MockBlooperDriver:
         self._step_count = 0
         return self._state()
 
+    def start_episode(self) -> StepState:
+        return self._state()
+
     def step(self, action: SteeringAction, repeat: int) -> StepState:
         is_jump = action == SteeringAction.JUMP
         steer = {

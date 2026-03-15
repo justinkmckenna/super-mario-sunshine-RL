@@ -23,6 +23,9 @@ class BlooperDriver(Protocol):
     def reset(self) -> StepState:
         """Restore the fixed mission start state and return the first frame."""
 
+    def start_episode(self) -> StepState:
+        """Run any deterministic pre-episode setup and return the first controllable state."""
+
     def step(self, action: SteeringAction, repeat: int) -> StepState:
         """Apply an action for `repeat` emulator frames and return the latest state."""
 

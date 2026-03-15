@@ -74,7 +74,6 @@ class DolphinDriverConfig:
     capture: CaptureConfig = field(default_factory=CaptureConfig)
     memory: MemoryBindings = field(default_factory=MemoryBindings)
     control_mode: Literal["vgamepad", "keyboard"] = "vgamepad"
-    restart_on_reset: bool = True
     neutral_deadzone: float = 0.2
     left_stick_magnitude: float = 0.75
     post_launch_delay_s: float = 2.0
@@ -84,16 +83,11 @@ class DolphinDriverConfig:
     keyboard_left_vk: int = 0x25   # Left arrow
     keyboard_right_vk: int = 0x27  # Right arrow
     keyboard_jump_vk: int = 0x58   # X key
-    save_state_slot: int = 1
-    initialize_reset_slot_on_launch: bool = True
-    post_soft_reset_delay_s: float = 0.35
-    soft_reset_attempts: int = 3
-    soft_reset_progress_tolerance: float = 5.0
     launch_retries: int = 4
     launch_retry_backoff_s: float = 0.75
-    pause_on_reset: bool = False
-    pause_toggle_vk: int = 0x79  # F10 by default in Dolphin
-    post_pause_toggle_delay_s: float = 0.05
+    startup_forward_seconds: float = 0.0
+    startup_forward_magnitude: float = 1.0
+    startup_settle_seconds: float = 0.1
 
 
 class DolphinWindowsDriver:
@@ -114,56 +108,22 @@ class DolphinWindowsDriver:
         self._gamepad = self._create_gamepad() if self._use_vgamepad else None
         self._memory = self._load_memory_engine()
         self._dxcam = None
-        self._slot_initialized = False
-        self._expected_reset_progress: float | None = None
-        self._needs_unpause_on_first_step = False
 
     @property
     def _use_vgamepad(self) -> bool:
         return self.config.control_mode == "vgamepad"
 
     def reset(self) -> StepState:
-        used_soft_reset = False
-        recovered_via_relaunch = False
-        if self.config.restart_on_reset or self._process is None:
-            self._restart_dolphin()
-        else:
-            try:
-                self._soft_reset_to_start()
-                used_soft_reset = True
-            except Exception:
-                # Fall back to full relaunch if in-process reset fails.
-                self._restart_dolphin()
-                recovered_via_relaunch = True
-
+        self._restart_dolphin()
         self._focus_window()
         self._center_steering()
         time.sleep(self.config.post_reset_delay_s)
-
-        try:
-            state = self._read_state()
-        except Exception:
-            # If soft reset left capture/memory in a bad state, recover by relaunching.
-            if used_soft_reset:
-                self._restart_dolphin()
-                self._focus_window()
-                self._center_steering()
-                time.sleep(self.config.post_reset_delay_s)
-                state = self._read_state()
-                recovered_via_relaunch = True
-            else:
-                raise
-        state.info["driver_reset_used_soft_reset"] = used_soft_reset
-        state.info["driver_reset_recovered_via_relaunch"] = recovered_via_relaunch
+        state = self._read_state()
         return state
 
     def step(self, action: SteeringAction, repeat: int) -> StepState:
         self._ensure_runtime_ready()
         self._focus_window()
-        if self._needs_unpause_on_first_step:
-            self._toggle_pause()
-            time.sleep(self.config.post_pause_toggle_delay_s)
-            self._needs_unpause_on_first_step = False
         repeat_count = max(1, repeat)
         for _ in range(repeat_count):
             self._apply_steering(action)
@@ -175,6 +135,25 @@ class DolphinWindowsDriver:
             if sleep_s > 0:
                 time.sleep(sleep_s)
         return self._read_state()
+
+    def start_episode(self) -> StepState:
+        self._ensure_runtime_ready()
+        self._focus_window()
+        if self.config.startup_forward_seconds <= 0:
+            return self._read_state()
+
+        self._apply_direct_input(
+            x_value=0.0,
+            y_value=self.config.startup_forward_magnitude,
+            jump=False,
+        )
+        time.sleep(self.config.startup_forward_seconds)
+        self._center_steering()
+        if self.config.startup_settle_seconds > 0:
+            time.sleep(self.config.startup_settle_seconds)
+        state = self._read_state()
+        state.info["driver_startup_sequence_applied"] = True
+        return state
 
     def close(self) -> None:
         self._center_steering()
@@ -204,25 +183,10 @@ class DolphinWindowsDriver:
                 self._capture_region = self.config.capture.region or _get_client_rect(
                     self._window_handle
                 )
-                if self.config.pause_on_reset:
-                    self._focus_window()
-                    self._toggle_pause()
-                    time.sleep(self.config.post_pause_toggle_delay_s)
-                    self._needs_unpause_on_first_step = True
                 self._init_camera()
                 self._hook_memory()
                 self._warmup_capture()
-                self._slot_initialized = False
-                if (
-                    self.config.launch.save_state_path is not None
-                    and self.config.initialize_reset_slot_on_launch
-                ):
-                    self._initialize_reset_slot()
-                try:
-                    start_state = self._read_state()
-                    self._expected_reset_progress = float(start_state.progress)
-                except Exception:
-                    self._expected_reset_progress = None
+                self._read_state()
                 return
             except Exception as exc:
                 last_exc = exc
@@ -237,73 +201,6 @@ class DolphinWindowsDriver:
         raise DolphinDriverError(
             f"Failed to relaunch Dolphin after {retries} attempts."
         ) from last_exc
-
-    def _soft_reset_to_start(self) -> None:
-        self._ensure_runtime_ready()
-        self._focus_window()
-        if not self._slot_initialized:
-            if self.config.launch.save_state_path is None:
-                raise DolphinDriverError(
-                    "Cannot soft reset without initial save state. Configure --save-state."
-                )
-            self._initialize_reset_slot()
-        attempts = max(1, self.config.soft_reset_attempts)
-        last_exc: Exception | None = None
-        for attempt in range(attempts):
-            try:
-                self._load_state_slot()
-                time.sleep(self.config.post_soft_reset_delay_s)
-                # DXGI duplication can become stale on in-process load-state transitions.
-                self._recover_camera(hard=True)
-                if not self._memory.is_hooked():
-                    self._hook_memory()
-                state = self._read_state()
-                if self._is_soft_reset_state_valid(state):
-                    if self.config.pause_on_reset:
-                        self._toggle_pause()
-                        time.sleep(self.config.post_pause_toggle_delay_s)
-                        self._needs_unpause_on_first_step = True
-                    return
-            except Exception as exc:
-                last_exc = exc
-            time.sleep(0.08)
-        raise DolphinDriverError(
-            f"Soft reset to savestate slot failed after {attempts} attempts."
-        ) from last_exc
-
-    def _is_soft_reset_state_valid(self, state: StepState) -> bool:
-        if state.mission_finished or state.mission_failed:
-            return False
-        if self._expected_reset_progress is None:
-            return True
-        return (
-            abs(float(state.progress) - self._expected_reset_progress)
-            <= self.config.soft_reset_progress_tolerance
-        )
-
-    def _initialize_reset_slot(self) -> None:
-        self._save_state_slot()
-        self._slot_initialized = True
-
-    def _state_slot_vk(self) -> int:
-        slot = self.config.save_state_slot
-        if slot < 1 or slot > 8:
-            raise DolphinDriverError("save_state_slot must be in range 1..8")
-        return 0x70 + (slot - 1)  # F1..F8
-
-    def _save_state_slot(self) -> None:
-        slot_vk = self._state_slot_vk()
-        shift_vk = 0x10
-        _key_down(shift_vk)
-        try:
-            _tap_key(slot_vk, hold_s=0.05)
-        finally:
-            _key_up(shift_vk)
-        time.sleep(0.1)
-
-    def _load_state_slot(self) -> None:
-        slot_vk = self._state_slot_vk()
-        _tap_key(slot_vk, hold_s=0.05)
 
     def _terminate_existing_process(self) -> None:
         self._unhook_memory()
@@ -549,12 +446,6 @@ class DolphinWindowsDriver:
             ) from exc
 
     def _apply_steering(self, action: SteeringAction) -> None:
-        if not self._use_vgamepad:
-            self._apply_keyboard_steering(action)
-            return
-
-        if self._gamepad is None:
-            raise DolphinDriverError("Virtual gamepad was not initialized.")
         magnitude = self.config.left_stick_magnitude
         if action == SteeringAction.LEFT:
             x_value = -magnitude
@@ -562,13 +453,33 @@ class DolphinWindowsDriver:
             x_value = magnitude
         else:
             x_value = 0.0
+        self._apply_direct_input(
+            x_value=x_value,
+            y_value=0.0,
+            jump=(action == SteeringAction.JUMP),
+        )
+
+    def _apply_direct_input(self, *, x_value: float, y_value: float, jump: bool) -> None:
+        if not self._use_vgamepad:
+            self._apply_keyboard_steering(
+                SteeringAction.JUMP if jump else (
+                    SteeringAction.LEFT
+                    if x_value < -self.config.neutral_deadzone
+                    else SteeringAction.RIGHT
+                    if x_value > self.config.neutral_deadzone
+                    else SteeringAction.NEUTRAL
+                )
+            )
+            return
+
+        if self._gamepad is None:
+            raise DolphinDriverError("Virtual gamepad was not initialized.")
 
         self._gamepad.left_joystick_float(
             x_value_float=x_value,
-            y_value_float=0.0,
+            y_value_float=y_value,
         )
-        # Optional vgamepad jump behavior if this mode is used later.
-        if action == SteeringAction.JUMP:
+        if jump:
             import vgamepad as vg  # type: ignore
 
             self._gamepad.press_button(button=vg.XUSB_BUTTON.XUSB_GAMEPAD_A)
@@ -612,9 +523,6 @@ class DolphinWindowsDriver:
             return
         user32 = ctypes.windll.user32
         user32.SetForegroundWindow(self._window_handle)
-
-    def _toggle_pause(self) -> None:
-        _tap_key(self.config.pause_toggle_vk, hold_s=0.04)
 
     def _load_memory_engine(self):
         try:

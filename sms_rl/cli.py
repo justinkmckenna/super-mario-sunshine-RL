@@ -124,8 +124,6 @@ def build_env(args: argparse.Namespace) -> BlooperSurfingEnv:
         capture=CaptureConfig(target_fps=args.capture_fps),
         memory=memory,
         control_mode=args.control_mode,
-        restart_on_reset=args.restart_on_reset,
-        save_state_slot=args.save_state_slot,
     )
     driver = DolphinWindowsDriver(driver_config)
     return BlooperSurfingEnv(config=EnvConfig(), driver=driver)
