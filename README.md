@@ -16,7 +16,7 @@ Current scope:
 - `sms_rl/envs/blooper_surfing.py`: Gymnasium environment
 - `sms_rl/drivers/base.py`: integration protocol for emulator control and state capture
 - `sms_rl/drivers/mock.py`: deterministic mock driver for smoke testing
-- `sms_rl/drivers/dolphin.py`: Windows Dolphin driver using virtual gamepad, DXcam, and Dolphin Memory Engine
+- `sms_rl/drivers/dolphin.py`: Windows Dolphin driver using virtual gamepad, MSS screen capture, and Dolphin Memory Engine
 - `sms_rl/baselines.py`: random and scripted baseline helpers
 - `sms_rl/cli.py`: simple baseline runner entrypoint
 
@@ -45,8 +45,17 @@ It is designed around:
 
 - Dolphin launched on Windows in windowed mode
 - controller input through `vgamepad` or keyboard mode
-- frame capture through `DXcam`
+- frame capture through `mss`
 - progress / finish / failure from `dolphin-memory-engine`
+
+Capture note:
+
+- `dxcam` produced all-black frames on this setup even though Dolphin, memory
+  reads, and episode control were working.
+- The project now uses `mss` as the active capture backend because it returns
+  real grayscale gameplay frames in this environment.
+- The `windows-dolphin` extra still includes both `dxcam` and `mss`, but `mss`
+  is the expected backend for local training on this machine.
 
 Install the extra dependencies with:
 
@@ -131,6 +140,10 @@ Current working savestate path:
 
 - `C:\Users\justi\Downloads\purple-blooper-start.sav`
 
+Current preferred pre-race savestate path:
+
+- `C:\Users\justi\Downloads\behind-purple-blooper-start.sav`
+
 ## Run Real Baselines
 
 Smoke test (single neutral episode):
@@ -158,11 +171,19 @@ python -m sms_rl.train_ppo ^
   --checkpoint-every 5000 ^
   --dolphin-exe "C:\Users\justi\Downloads\dolphin-2512-x64\Dolphin-x64\Dolphin.exe" ^
   --game-path "C:\Users\justi\Downloads\Super Mario Sunshine (2002)(Nintendo)(US).iso" ^
-  --save-state "C:\Users\justi\Downloads\purple-blooper-start.sav" ^
+  --save-state "C:\Users\justi\Downloads\behind-purple-blooper-start.sav" ^
   --user-path "C:\Users\justi\Projects\super-mario-sunshine-RL\dolphin_user_profile" ^
   --window-title "Super Mario Sunshine" ^
+  --render-to-main ^
   --control-mode vgamepad ^
+  --capture-backend mss ^
   --capture-fps 30 ^
+  --post-launch-delay-seconds 0 ^
+  --post-reset-delay-seconds 0 ^
+  --startup-forward-seconds 1.0 ^
+  --startup-forward-magnitude 1.0 ^
+  --startup-settle-seconds 0.1 ^
+  --window-stable-seconds 0 ^
   --progress-address 0x80FA50D4 --progress-type float ^
   --finished-address 0x805F64C6 --finished-type byte --finished-value 1 ^
   --failed-address 0x804257D3 --failed-type byte --failed-value 1
@@ -181,24 +202,18 @@ Outputs are written to `runs/<run-name>/`:
 - `eval/*.mp4` (if `--record-eval-video`)
 - TensorBoard logs in `tensorboard/`
 
-By default, PPO training uses in-process resets (`--no-restart-on-reset`) and
-reloads savestate slot `1` between episodes. This avoids full Dolphin relaunches
-and is more stable for long runs.
+The current preferred setup uses full Dolphin relaunch on every episode reset,
+loads the pre-race savestate with `--save_state`, waits for capture to come up,
+then runs a short deterministic startup-forward sequence to mount the blooper
+before policy control begins.
 
-For stability when terminal flags occasionally miss, training also supports a
+For stability when terminal flags occasionally miss, training supports a
 wall-clock episode watchdog via `--max-episode-seconds` (example: `45`).
 
 PowerShell wrapper with current local paths:
 
 ```bash
 powershell -ExecutionPolicy Bypass -File .\scripts\run_dolphin_ppo_train.ps1
-```
-
-Alternative wrapper that uses in-process savestate reload between episodes
-(experimental on this setup):
-
-```bash
-powershell -ExecutionPolicy Bypass -File .\scripts\run_dolphin_ppo_train_soft_reset.ps1
 ```
 
 Current baseline scripts are configured for vgamepad control mode.
