@@ -30,6 +30,8 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
         self._last_progress = 0.0
         self._steps = 0
         self._episode_start_s = 0.0
+        self._finished_signal_count = 0
+        self._failed_signal_count = 0
 
         obs_shape = self._observation_shape()
         self.action_space = spaces.Discrete(len(SteeringAction))
@@ -61,6 +63,8 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
         self._last_progress = state.progress
         self._steps = 0
         self._episode_start_s = time.monotonic()
+        self._finished_signal_count = 0
+        self._failed_signal_count = 0
         info = dict(state.info)
         info["mission_finished"] = state.mission_finished
         info["mission_failed"] = state.mission_failed
@@ -83,9 +87,25 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
         state = self.driver.step(steering, repeat=self.config.episode.action_repeat)
         self._frame_stack.append(self._normalize_frame(state.frame))
         self._steps += 1
+        raw_finished = state.mission_finished
+        raw_failed = state.mission_failed
+        self._finished_signal_count = (
+            self._finished_signal_count + 1 if raw_finished else 0
+        )
+        self._failed_signal_count = self._failed_signal_count + 1 if raw_failed else 0
+        confirm_steps = max(1, self.config.episode.terminal_confirm_steps)
+        confirmed_finished = self._finished_signal_count >= confirm_steps
+        confirmed_failed = self._failed_signal_count >= confirm_steps
+        debounced_state = StepState(
+            frame=state.frame,
+            progress=state.progress,
+            mission_finished=confirmed_finished,
+            mission_failed=confirmed_failed,
+            info=state.info,
+        )
 
-        reward = self._compute_reward(state)
-        terminated = state.mission_finished or state.mission_failed
+        reward = self._compute_reward(debounced_state)
+        terminated = confirmed_finished or confirmed_failed
         elapsed_s = time.monotonic() - self._episode_start_s
         timed_out = elapsed_s >= self.config.episode.max_episode_seconds
         truncated = (
@@ -94,13 +114,17 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
         )
 
         info = dict(state.info)
-        info["mission_finished"] = state.mission_finished
-        info["mission_failed"] = state.mission_failed
+        info["mission_finished_raw"] = raw_finished
+        info["mission_failed_raw"] = raw_failed
+        info["mission_finished"] = confirmed_finished
+        info["mission_failed"] = confirmed_failed
+        info["mission_finished_confirm_count"] = self._finished_signal_count
+        info["mission_failed_confirm_count"] = self._failed_signal_count
         info["episode_steps"] = self._steps
         info["episode_elapsed_seconds"] = elapsed_s
         info["timeout_truncated"] = bool(truncated and timed_out)
         info["progress"] = state.progress
-        info["reward_components"] = self._reward_components(state)
+        info["reward_components"] = self._reward_components(debounced_state)
 
         self._last_progress = state.progress
         return self._stacked_observation(), reward, terminated, truncated, info

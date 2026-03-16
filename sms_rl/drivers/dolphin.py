@@ -126,13 +126,16 @@ class DolphinWindowsDriver:
         self._ensure_runtime_ready()
         self._focus_window()
         repeat_count = max(1, repeat)
+        sleep_s = (
+            self.config.step_sleep_s
+            if self.config.step_sleep_s > 0
+            else self.config.step_frame_time_s
+        )
         for _ in range(repeat_count):
+            if action == SteeringAction.JUMP:
+                self._tap_jump(sleep_s)
+                continue
             self._apply_steering(action)
-            sleep_s = (
-                self.config.step_sleep_s
-                if self.config.step_sleep_s > 0
-                else self.config.step_frame_time_s
-            )
             if sleep_s > 0:
                 time.sleep(sleep_s)
         return self._read_state()
@@ -584,6 +587,25 @@ class DolphinWindowsDriver:
             _key_up(self.config.keyboard_left_vk)
             _key_up(self.config.keyboard_right_vk)
             _key_up(self.config.keyboard_jump_vk)
+
+    def _tap_jump(self, frame_sleep_s: float) -> None:
+        if self._use_vgamepad:
+            self._apply_direct_input(x_value=0.0, y_value=0.0, jump=True)
+            if frame_sleep_s > 0:
+                time.sleep(frame_sleep_s * 0.5)
+            self._apply_direct_input(x_value=0.0, y_value=0.0, jump=False)
+            if frame_sleep_s > 0:
+                time.sleep(frame_sleep_s * 0.5)
+            return
+
+        _key_up(self.config.keyboard_left_vk)
+        _key_up(self.config.keyboard_right_vk)
+        _key_down(self.config.keyboard_jump_vk)
+        if frame_sleep_s > 0:
+            time.sleep(frame_sleep_s * 0.5)
+        _key_up(self.config.keyboard_jump_vk)
+        if frame_sleep_s > 0:
+            time.sleep(frame_sleep_s * 0.5)
 
     def _focus_window(self) -> None:
         if self._window_handle is None:

@@ -199,45 +199,42 @@ def obs_to_frame(observation: np.ndarray, grayscale: bool) -> np.ndarray:
 
 def evaluate_model(
     model: Any,
-    make_env: Callable[[], BlooperSurfingEnv],
+    env: Any,
     eval_episodes: int,
     *,
+    deterministic: bool = True,
     record_video: bool,
     video_path: Path | None,
     video_fps: int,
     grayscale: bool,
 ) -> dict[str, float]:
-    env = make_env()
     episode_rewards: list[float] = []
     episode_lengths: list[int] = []
     success_count = 0
     fail_count = 0
     captured_frames: list[np.ndarray] = []
-    try:
-        for episode_idx in range(eval_episodes):
-            obs, info = env.reset()
-            del info
-            terminated = False
-            truncated = False
-            ep_reward = 0.0
-            ep_steps = 0
+    for episode_idx in range(eval_episodes):
+        obs, info = env.reset()
+        del info
+        terminated = False
+        truncated = False
+        ep_reward = 0.0
+        ep_steps = 0
+        if record_video and episode_idx == 0:
+            captured_frames.append(obs_to_frame(obs, grayscale))
+
+        while not terminated and not truncated:
+            action, _ = model.predict(obs, deterministic=deterministic)
+            obs, reward, terminated, truncated, info = env.step(int(action))
+            ep_reward += float(reward)
+            ep_steps += 1
             if record_video and episode_idx == 0:
                 captured_frames.append(obs_to_frame(obs, grayscale))
 
-            while not terminated and not truncated:
-                action, _ = model.predict(obs, deterministic=True)
-                obs, reward, terminated, truncated, info = env.step(int(action))
-                ep_reward += float(reward)
-                ep_steps += 1
-                if record_video and episode_idx == 0:
-                    captured_frames.append(obs_to_frame(obs, grayscale))
-
-            episode_rewards.append(ep_reward)
-            episode_lengths.append(ep_steps)
-            success_count += int(bool(info.get("mission_finished", False)))
-            fail_count += int(bool(info.get("mission_failed", False)))
-    finally:
-        env.close()
+        episode_rewards.append(ep_reward)
+        episode_lengths.append(ep_steps)
+        success_count += int(bool(info.get("mission_finished", False)))
+        fail_count += int(bool(info.get("mission_failed", False)))
 
     if record_video and video_path is not None and captured_frames:
         video_path.parent.mkdir(parents=True, exist_ok=True)
@@ -332,7 +329,7 @@ def main() -> None:
                 next_checkpoint += max(1, args.checkpoint_every)
 
             while model.num_timesteps >= next_eval:
-                train_env.env_method("close")
+                eval_env = train_env.envs[0]
                 video_path = (
                     eval_dir / f"eval_step_{next_eval}.mp4"
                     if args.record_eval_video
@@ -340,8 +337,9 @@ def main() -> None:
                 )
                 metrics = evaluate_model(
                     model,
-                    make_env,
+                    eval_env,
                     args.eval_episodes,
+                    deterministic=True,
                     record_video=args.record_eval_video,
                     video_path=video_path,
                     video_fps=args.eval_video_fps,

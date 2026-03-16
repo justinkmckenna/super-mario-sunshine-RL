@@ -16,6 +16,7 @@ class EpisodeConfig:
     max_steps: int = 900
     max_episode_seconds: float = 45.0
     action_repeat: int = 4
+    terminal_confirm_steps: int = 2
     step_penalty: float = -0.01
     finish_reward: float = 25.0
     fail_reward: float = -25.0
