@@ -4,7 +4,8 @@ import argparse
 from pathlib import Path
 
 from sms_rl.baselines import CenteringPolicy, ConstantPolicy, RandomPolicy, run_episode
-from sms_rl.config import EnvConfig
+from sms_rl.config import EnvConfig, EpisodeConfig
+from sms_rl.courses import BLOOPER_SURFING_WAYPOINTS
 from sms_rl.drivers.dolphin import (
     CaptureConfig,
     DolphinDriverConfig,
@@ -13,6 +14,7 @@ from sms_rl.drivers.dolphin import (
     MemoryBindings,
     MemoryFlagSpec,
     MemoryValueSpec,
+    sunshine_position_memory_bindings,
 )
 from sms_rl.envs.blooper_surfing import BlooperSurfingEnv
 
@@ -89,7 +91,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def build_env(args: argparse.Namespace) -> BlooperSurfingEnv:
     if args.backend == "mock":
-        return BlooperSurfingEnv(config=EnvConfig())
+        return BlooperSurfingEnv(
+            config=EnvConfig(
+                episode=EpisodeConfig(
+                    path_waypoints=BLOOPER_SURFING_WAYPOINTS,
+                )
+            )
+        )
 
     if args.dolphin_exe is None or args.game_path is None:
         raise SystemExit("--dolphin-exe and --game-path are required for --backend dolphin.")
@@ -121,6 +129,7 @@ def build_env(args: argparse.Namespace) -> BlooperSurfingEnv:
             if args.failed_address is not None
             else None
         ),
+        **sunshine_position_memory_bindings(),
     )
     driver_config = DolphinDriverConfig(
         launch=DolphinLaunchConfig(
@@ -140,7 +149,14 @@ def build_env(args: argparse.Namespace) -> BlooperSurfingEnv:
         control_mode=args.control_mode,
     )
     driver = DolphinWindowsDriver(driver_config)
-    return BlooperSurfingEnv(config=EnvConfig(), driver=driver)
+    return BlooperSurfingEnv(
+        config=EnvConfig(
+            episode=EpisodeConfig(
+                path_waypoints=BLOOPER_SURFING_WAYPOINTS,
+            )
+        ),
+        driver=driver,
+    )
 
 
 def build_policy(args: argparse.Namespace, env: BlooperSurfingEnv):

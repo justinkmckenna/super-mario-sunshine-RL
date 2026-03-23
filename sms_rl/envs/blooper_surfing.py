@@ -27,11 +27,12 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
         self._frame_stack: deque[np.ndarray] = deque(
             maxlen=self.config.observation.frame_stack
         )
-        self._last_progress = 0.0
+        self._last_path_progress = 0.0
         self._steps = 0
         self._episode_start_s = 0.0
         self._finished_signal_count = 0
         self._failed_signal_count = 0
+        self._path_segments = self._build_path_segments()
 
         obs_shape = self._observation_shape()
         self.action_space = spaces.Discrete(len(SteeringAction))
@@ -60,7 +61,8 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
         for _ in range(self.config.observation.frame_stack):
             self._frame_stack.append(processed.copy())
 
-        self._last_progress = state.progress
+        path_metrics = self._path_metrics_from_info(state.info)
+        self._last_path_progress = path_metrics["path_progress"]
         self._steps = 0
         self._episode_start_s = time.monotonic()
         self._finished_signal_count = 0
@@ -71,7 +73,9 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
         info["episode_steps"] = self._steps
         info["episode_elapsed_seconds"] = 0.0
         info["timeout_truncated"] = False
-        info["progress"] = state.progress
+        info["raw_progress"] = state.progress
+        info.update(path_metrics)
+        info["progress"] = path_metrics["path_progress"]
         env_reset_end = time.perf_counter()
         env_reset_end_epoch = time.time()
         info["env_reset_started_epoch_s"] = env_reset_start_epoch
@@ -104,7 +108,8 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
             info=state.info,
         )
 
-        reward = self._compute_reward(debounced_state)
+        path_metrics = self._path_metrics_from_info(state.info)
+        reward = self._compute_reward(debounced_state, path_metrics)
         terminated = confirmed_finished or confirmed_failed
         elapsed_s = time.monotonic() - self._episode_start_s
         timed_out = elapsed_s >= self.config.episode.max_episode_seconds
@@ -123,21 +128,31 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
         info["episode_steps"] = self._steps
         info["episode_elapsed_seconds"] = elapsed_s
         info["timeout_truncated"] = bool(truncated and timed_out)
-        info["progress"] = state.progress
-        info["reward_components"] = self._reward_components(debounced_state)
+        info["raw_progress"] = state.progress
+        info.update(path_metrics)
+        info["progress"] = path_metrics["path_progress"]
+        info["reward_components"] = self._reward_components(debounced_state, path_metrics)
 
-        self._last_progress = state.progress
+        self._last_path_progress = path_metrics["path_progress"]
         return self._stacked_observation(), reward, terminated, truncated, info
 
     def close(self) -> None:
         self.driver.close()
 
-    def _compute_reward(self, state: StepState) -> float:
-        components = self._reward_components(state)
+    def _compute_reward(
+        self,
+        state: StepState,
+        path_metrics: dict[str, float],
+    ) -> float:
+        components = self._reward_components(state, path_metrics)
         return float(sum(components.values()))
 
-    def _reward_components(self, state: StepState) -> dict[str, float]:
-        progress_delta = max(0.0, state.progress - self._last_progress)
+    def _reward_components(
+        self,
+        state: StepState,
+        path_metrics: dict[str, float],
+    ) -> dict[str, float]:
+        progress_delta = max(0.0, path_metrics["path_progress"] - self._last_path_progress)
         components = {
             "progress": progress_delta * self.config.episode.progress_reward_scale,
             "step_penalty": self.config.episode.step_penalty,
@@ -147,6 +162,53 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
             "fail": self.config.episode.fail_reward if state.mission_failed else 0.0,
         }
         return components
+
+    def _build_path_segments(self) -> list[tuple[np.ndarray, np.ndarray, float, float]]:
+        waypoints = self.config.episode.path_waypoints
+        if len(waypoints) < 2:
+            return []
+
+        segments: list[tuple[np.ndarray, np.ndarray, float, float]] = []
+        cumulative = 0.0
+        for idx in range(len(waypoints) - 1):
+            start = np.asarray(waypoints[idx], dtype=np.float64)
+            end = np.asarray(waypoints[idx + 1], dtype=np.float64)
+            delta = end - start
+            length = float(np.linalg.norm(delta))
+            if length <= 1e-6:
+                continue
+            segments.append((start, delta, length, cumulative))
+            cumulative += length
+        return segments
+
+    def _path_metrics_from_info(self, info: dict[str, Any]) -> dict[str, float]:
+        x = info.get("position_x")
+        z = info.get("position_z")
+        if x is None or z is None or not self._path_segments:
+            return {
+                "path_progress": 0.0,
+                "path_distance": 0.0,
+            }
+
+        point = np.asarray([float(x), float(z)], dtype=np.float64)
+        best_progress = 0.0
+        best_distance = float("inf")
+
+        for start, delta, length, cumulative in self._path_segments:
+            segment_direction = delta / length
+            projection = float(np.dot(point - start, segment_direction))
+            projection = min(max(projection, 0.0), length)
+            closest = start + (segment_direction * projection)
+            distance = float(np.linalg.norm(point - closest))
+            progress = cumulative + projection
+            if distance < best_distance:
+                best_distance = distance
+                best_progress = progress
+
+        return {
+            "path_progress": best_progress,
+            "path_distance": 0.0 if best_distance == float("inf") else best_distance,
+        }
 
     def _observation_shape(self) -> tuple[int, int, int]:
         channels_per_frame = 1 if self.config.observation.grayscale else 3

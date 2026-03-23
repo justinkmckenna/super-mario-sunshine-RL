@@ -66,6 +66,10 @@ class MemoryBindings:
     progress: MemoryValueSpec | None = None
     mission_finished: MemoryFlagSpec | None = None
     mission_failed: MemoryFlagSpec | None = None
+    position_x: MemoryValueSpec | None = None
+    position_y: MemoryValueSpec | None = None
+    position_z: MemoryValueSpec | None = None
+    position_yaw: MemoryValueSpec | None = None
 
 
 @dataclass(slots=True)
@@ -89,6 +93,31 @@ class DolphinDriverConfig:
     startup_forward_seconds: float = 0.0
     startup_forward_magnitude: float = 1.0
     startup_settle_seconds: float = 0.1
+
+
+def sunshine_position_memory_bindings() -> dict[str, MemoryValueSpec]:
+    return {
+        "position_x": MemoryValueSpec(
+            base_address=0x8040E108,
+            value_type="float",
+            pointer_offsets=(0x10,),
+        ),
+        "position_y": MemoryValueSpec(
+            base_address=0x8040E108,
+            value_type="float",
+            pointer_offsets=(0x14,),
+        ),
+        "position_z": MemoryValueSpec(
+            base_address=0x8040E108,
+            value_type="float",
+            pointer_offsets=(0x18,),
+        ),
+        "position_yaw": MemoryValueSpec(
+            base_address=0x8040E108,
+            value_type="float",
+            pointer_offsets=(0x34,),
+        ),
+    }
 
 
 class DolphinWindowsDriver:
@@ -359,6 +388,7 @@ class DolphinWindowsDriver:
             progress = 0.0
             mission_finished = False
             mission_failed = True
+        self._populate_optional_memory_info(info)
         return StepState(
             frame=frame,
             progress=float(progress),
@@ -366,6 +396,21 @@ class DolphinWindowsDriver:
             mission_failed=mission_failed,
             info=info,
         )
+
+    def _populate_optional_memory_info(self, info: dict[str, object]) -> None:
+        optional_specs = {
+            "position_x": self.config.memory.position_x,
+            "position_y": self.config.memory.position_y,
+            "position_z": self.config.memory.position_z,
+            "position_yaw": self.config.memory.position_yaw,
+        }
+        for key, spec in optional_specs.items():
+            if spec is None:
+                continue
+            try:
+                info[key] = self._read_memory_value(spec, default=0.0)
+            except Exception as exc:
+                info[f"{key}_error"] = str(exc)
 
     def _capture_frame(self) -> np.ndarray:
         if self._camera is None:
@@ -628,6 +673,10 @@ class DolphinWindowsDriver:
                 self.config.memory.progress,
                 self.config.memory.mission_finished,
                 self.config.memory.mission_failed,
+                self.config.memory.position_x,
+                self.config.memory.position_y,
+                self.config.memory.position_z,
+                self.config.memory.position_yaw,
             )
         ):
             return

@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from sms_rl.config import EnvConfig, EpisodeConfig, ObservationConfig
+from sms_rl.courses import BLOOPER_SURFING_WAYPOINTS
 from sms_rl.drivers.dolphin import (
     CaptureConfig,
     DolphinDriverConfig,
@@ -15,6 +16,7 @@ from sms_rl.drivers.dolphin import (
     MemoryBindings,
     MemoryFlagSpec,
     MemoryValueSpec,
+    sunshine_position_memory_bindings,
 )
 from sms_rl.envs.blooper_surfing import BlooperSurfingEnv
 
@@ -122,6 +124,7 @@ def build_env(args: argparse.Namespace) -> BlooperSurfingEnv:
             finish_reward=args.finish_reward,
             fail_reward=args.fail_reward,
             progress_reward_scale=args.progress_reward_scale,
+            path_waypoints=BLOOPER_SURFING_WAYPOINTS,
         ),
     )
     memory = MemoryBindings(
@@ -139,6 +142,7 @@ def build_env(args: argparse.Namespace) -> BlooperSurfingEnv:
             value_type=args.failed_type,
             expected_value=args.failed_value,
         ),
+        **sunshine_position_memory_bindings(),
     )
     driver = DolphinWindowsDriver(
         DolphinDriverConfig(

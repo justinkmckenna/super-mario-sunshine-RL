@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Tuple
 
 
 @dataclass(slots=True)
@@ -21,6 +22,7 @@ class EpisodeConfig:
     finish_reward: float = 25.0
     fail_reward: float = -25.0
     progress_reward_scale: float = 1.0
+    path_waypoints: Tuple[tuple[float, float], ...] = ()
 
 
 @dataclass(slots=True)
