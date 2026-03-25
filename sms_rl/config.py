@@ -22,6 +22,7 @@ class EpisodeConfig:
     finish_reward: float = 25.0
     fail_reward: float = -25.0
     progress_reward_scale: float = 1.0
+    path_distance_penalty_scale: float = 0.0
     path_waypoints: Tuple[tuple[float, float], ...] = ()
 
 

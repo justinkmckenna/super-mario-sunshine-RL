@@ -192,6 +192,7 @@ class DolphinWindowsDriver:
         self._center_steering()
         self._close_camera()
         self._camera = None
+        self._destroy_gamepad()
 
         self._unhook_memory()
 
@@ -550,15 +551,31 @@ class DolphinWindowsDriver:
                 "vgamepad is not installed. Install with `pip install -e .[windows-dolphin]`."
             ) from exc
 
+        last_exc: Exception | None = None
+        for _attempt in range(3):
+            try:
+                gamepad = vg.VX360Gamepad()
+                gamepad.reset()
+                gamepad.update()
+                return gamepad
+            except Exception as exc:
+                last_exc = exc
+                gc.collect()
+                time.sleep(0.25)
+        raise DolphinDriverError(
+            "Failed to create a virtual Xbox 360 gamepad. Confirm ViGEmBus is installed."
+        ) from last_exc
+
+    def _destroy_gamepad(self) -> None:
+        if self._gamepad is None:
+            return
         try:
-            gamepad = vg.VX360Gamepad()
-            gamepad.reset()
-            gamepad.update()
-            return gamepad
-        except Exception as exc:
-            raise DolphinDriverError(
-                "Failed to create a virtual Xbox 360 gamepad. Confirm ViGEmBus is installed."
-            ) from exc
+            self._gamepad.reset()
+            self._gamepad.update()
+        except Exception:
+            pass
+        self._gamepad = None
+        gc.collect()
 
     def _apply_steering(self, action: SteeringAction) -> None:
         magnitude = self.config.left_stick_magnitude

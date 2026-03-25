@@ -43,6 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--finish-reward", type=float, default=25.0)
     parser.add_argument("--fail-reward", type=float, default=-25.0)
     parser.add_argument("--progress-reward-scale", type=float, default=1.0)
+    parser.add_argument("--path-distance-penalty-scale", type=float, default=0.0)
 
     parser.add_argument("--dolphin-exe", type=Path, required=True)
     parser.add_argument("--game-path", type=Path, required=True)
@@ -116,6 +117,7 @@ def build_env(args: argparse.Namespace) -> BlooperSurfingEnv:
             finish_reward=args.finish_reward,
             fail_reward=args.fail_reward,
             progress_reward_scale=args.progress_reward_scale,
+            path_distance_penalty_scale=args.path_distance_penalty_scale,
             path_waypoints=BLOOPER_SURFING_WAYPOINTS,
         ),
     )

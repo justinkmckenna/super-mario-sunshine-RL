@@ -155,6 +155,10 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
         progress_delta = max(0.0, path_metrics["path_progress"] - self._last_path_progress)
         components = {
             "progress": progress_delta * self.config.episode.progress_reward_scale,
+            "path_distance": (
+                -path_metrics["path_distance"]
+                * self.config.episode.path_distance_penalty_scale
+            ),
             "step_penalty": self.config.episode.step_penalty,
             "finish": (
                 self.config.episode.finish_reward if state.mission_finished else 0.0

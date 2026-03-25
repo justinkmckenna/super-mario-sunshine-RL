@@ -53,6 +53,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ent-coef", type=float, default=0.0)
     parser.add_argument("--vf-coef", type=float, default=0.5)
     parser.add_argument("--device", default="auto")
+    parser.add_argument("--resume-checkpoint", type=Path)
 
     parser.add_argument("--obs-width", type=int, default=96)
     parser.add_argument("--obs-height", type=int, default=72)
@@ -69,6 +70,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--finish-reward", type=float, default=25.0)
     parser.add_argument("--fail-reward", type=float, default=-25.0)
     parser.add_argument("--progress-reward-scale", type=float, default=1.0)
+    parser.add_argument("--path-distance-penalty-scale", type=float, default=0.0)
 
     parser.add_argument("--dolphin-exe", type=Path, required=True)
     parser.add_argument("--game-path", type=Path, required=True)
@@ -141,6 +143,7 @@ def build_env_factory(args: argparse.Namespace) -> Callable[[], BlooperSurfingEn
             finish_reward=args.finish_reward,
             fail_reward=args.fail_reward,
             progress_reward_scale=args.progress_reward_scale,
+            path_distance_penalty_scale=args.path_distance_penalty_scale,
             path_waypoints=BLOOPER_SURFING_WAYPOINTS,
         ),
     )
@@ -277,23 +280,43 @@ def main() -> None:
     make_env = build_env_factory(args)
     train_env = DummyVecEnv([lambda: Monitor(make_env())])
 
-    model = PPO(
-        policy="CnnPolicy",
-        env=train_env,
-        learning_rate=args.learning_rate,
-        n_steps=args.n_steps,
-        batch_size=args.batch_size,
-        n_epochs=args.n_epochs,
-        gamma=args.gamma,
-        gae_lambda=args.gae_lambda,
-        clip_range=args.clip_range,
-        ent_coef=args.ent_coef,
-        vf_coef=args.vf_coef,
-        verbose=1,
-        tensorboard_log=str(tensorboard_dir),
-        device=args.device,
-        seed=args.seed,
-    )
+    if args.resume_checkpoint is not None:
+        model = PPO.load(
+            str(args.resume_checkpoint),
+            env=train_env,
+            device=args.device,
+        )
+        model.learning_rate = args.learning_rate
+        if hasattr(model, "lr_schedule"):
+            model.lr_schedule = lambda _progress_remaining: args.learning_rate
+        model.tensorboard_log = str(tensorboard_dir)
+        model.verbose = 1
+        model.n_steps = args.n_steps
+        model.batch_size = args.batch_size
+        model.n_epochs = args.n_epochs
+        model.gamma = args.gamma
+        model.gae_lambda = args.gae_lambda
+        model.clip_range = args.clip_range
+        model.ent_coef = args.ent_coef
+        model.vf_coef = args.vf_coef
+    else:
+        model = PPO(
+            policy="CnnPolicy",
+            env=train_env,
+            learning_rate=args.learning_rate,
+            n_steps=args.n_steps,
+            batch_size=args.batch_size,
+            n_epochs=args.n_epochs,
+            gamma=args.gamma,
+            gae_lambda=args.gae_lambda,
+            clip_range=args.clip_range,
+            ent_coef=args.ent_coef,
+            vf_coef=args.vf_coef,
+            verbose=1,
+            tensorboard_log=str(tensorboard_dir),
+            device=args.device,
+            seed=args.seed,
+        )
 
     eval_csv_path = eval_dir / "eval_metrics.csv"
     with eval_csv_path.open("w", newline="", encoding="utf-8") as handle:

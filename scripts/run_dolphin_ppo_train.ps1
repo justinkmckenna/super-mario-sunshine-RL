@@ -22,13 +22,17 @@ $ES_CONTINUOUS = [Convert]::ToUInt32("80000000", 16)
 $ES_SYSTEM_REQUIRED = [uint32]0x00000001
 $ES_DISPLAY_REQUIRED = [uint32]0x00000002
 
-$runName = "ppo_smoke_prerace_v3"
-$totalTimesteps = "10000"
-$evalEvery = "2000"
-$checkpointEvery = "2000"
+$runName = "ppo_overnight_pathreward_v2_continue"
+$totalTimesteps = "300000"
+$evalEvery = "10000"
+$checkpointEvery = "10000"
 $evalEpisodes = "3"
 $nSteps = "128"
 $actionRepeat = "2"
+$learningRate = "0.0001"
+$progressRewardScale = "0.001"
+$pathDistancePenaltyScale = "0.0005"
+$resumeCheckpoint = "C:\Users\justi\Projects\super-mario-sunshine-RL\runs\ppo_overnight_pathreward_v1\checkpoints\ppo_step_100000.zip"
 
 try {
   $awakeFlags = [uint32]($ES_CONTINUOUS -bor $ES_SYSTEM_REQUIRED -bor $ES_DISPLAY_REQUIRED)
@@ -37,6 +41,7 @@ try {
   & $python -m sms_rl.train_ppo `
     --run-name $runName `
     --device cuda `
+    --learning-rate $learningRate `
     --n-steps $nSteps `
     --total-timesteps $totalTimesteps `
     --eval-every $evalEvery `
@@ -44,6 +49,9 @@ try {
     --checkpoint-every $checkpointEvery `
     --action-repeat $actionRepeat `
     --max-episode-seconds 45 `
+    --progress-reward-scale $progressRewardScale `
+    --path-distance-penalty-scale $pathDistancePenaltyScale `
+    --resume-checkpoint $resumeCheckpoint `
     --dolphin-exe $dolphinExe `
     --game-path $gamePath `
     --save-state $saveStatePath `
