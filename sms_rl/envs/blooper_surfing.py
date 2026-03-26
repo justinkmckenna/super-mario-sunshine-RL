@@ -28,11 +28,17 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
             maxlen=self.config.observation.frame_stack
         )
         self._last_path_progress = 0.0
+        self._last_segment_index = 0
         self._steps = 0
         self._episode_start_s = 0.0
         self._finished_signal_count = 0
         self._failed_signal_count = 0
         self._path_segments = self._build_path_segments()
+        self._path_start_point = (
+            np.asarray(self.config.episode.path_waypoints[0], dtype=np.float64)
+            if self.config.episode.path_waypoints
+            else None
+        )
 
         obs_shape = self._observation_shape()
         self.action_space = spaces.Discrete(len(SteeringAction))
@@ -63,6 +69,7 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
 
         path_metrics = self._path_metrics_from_info(state.info)
         self._last_path_progress = path_metrics["path_progress"]
+        self._last_segment_index = int(path_metrics["path_segment_index"])
         self._steps = 0
         self._episode_start_s = time.monotonic()
         self._finished_signal_count = 0
@@ -134,6 +141,7 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
         info["reward_components"] = self._reward_components(debounced_state, path_metrics)
 
         self._last_path_progress = path_metrics["path_progress"]
+        self._last_segment_index = int(path_metrics["path_segment_index"])
         return self._stacked_observation(), reward, terminated, truncated, info
 
     def close(self) -> None:
@@ -167,12 +175,14 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
         }
         return components
 
-    def _build_path_segments(self) -> list[tuple[np.ndarray, np.ndarray, float, float]]:
+    def _build_path_segments(
+        self,
+    ) -> list[tuple[int, np.ndarray, np.ndarray, float, float]]:
         waypoints = self.config.episode.path_waypoints
         if len(waypoints) < 2:
             return []
 
-        segments: list[tuple[np.ndarray, np.ndarray, float, float]] = []
+        segments: list[tuple[int, np.ndarray, np.ndarray, float, float]] = []
         cumulative = 0.0
         for idx in range(len(waypoints) - 1):
             start = np.asarray(waypoints[idx], dtype=np.float64)
@@ -181,7 +191,7 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
             length = float(np.linalg.norm(delta))
             if length <= 1e-6:
                 continue
-            segments.append((start, delta, length, cumulative))
+            segments.append((idx, start, delta, length, cumulative))
             cumulative += length
         return segments
 
@@ -192,13 +202,25 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
             return {
                 "path_progress": 0.0,
                 "path_distance": 0.0,
+                "path_segment_index": 0.0,
+                "path_progress_raw": 0.0,
+                "path_distance_to_start": 0.0,
+                "path_progress_regression_clamped": 0.0,
+                "path_respawn_detected": 0.0,
             }
 
         point = np.asarray([float(x), float(z)], dtype=np.float64)
         best_progress = 0.0
         best_distance = float("inf")
+        best_segment_index = self._last_segment_index
+        lookahead = max(0, self.config.episode.path_segment_lookahead)
+        candidate_start = max(0, self._last_segment_index)
+        candidate_end = min(len(self._path_segments) - 1, self._last_segment_index + lookahead)
+        candidates = self._path_segments[candidate_start : candidate_end + 1]
+        if not candidates:
+            candidates = self._path_segments
 
-        for start, delta, length, cumulative in self._path_segments:
+        for segment_index, start, delta, length, cumulative in candidates:
             segment_direction = delta / length
             projection = float(np.dot(point - start, segment_direction))
             projection = min(max(projection, 0.0), length)
@@ -208,10 +230,37 @@ class BlooperSurfingEnv(gym.Env[np.ndarray, int]):
             if distance < best_distance:
                 best_distance = distance
                 best_progress = progress
+                best_segment_index = segment_index
+
+        progress_raw = best_progress
+        regression_clamped = 0.0
+        if best_progress + self.config.episode.path_backward_tolerance < self._last_path_progress:
+            best_progress = self._last_path_progress
+            best_segment_index = self._last_segment_index
+            regression_clamped = 1.0
+
+        distance_to_start = (
+            float(np.linalg.norm(point - self._path_start_point))
+            if self._path_start_point is not None
+            else 0.0
+        )
+        respawn_detected = 0.0
+        if (
+            self._last_path_progress >= self.config.episode.path_respawn_progress_threshold
+            and distance_to_start <= self.config.episode.path_respawn_start_distance_threshold
+        ):
+            best_progress = self._last_path_progress
+            best_segment_index = self._last_segment_index
+            respawn_detected = 1.0
 
         return {
             "path_progress": best_progress,
             "path_distance": 0.0 if best_distance == float("inf") else best_distance,
+            "path_segment_index": float(best_segment_index),
+            "path_progress_raw": progress_raw,
+            "path_distance_to_start": distance_to_start,
+            "path_progress_regression_clamped": regression_clamped,
+            "path_respawn_detected": respawn_detected,
         }
 
     def _observation_shape(self) -> tuple[int, int, int]:

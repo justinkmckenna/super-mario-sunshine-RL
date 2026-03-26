@@ -22,7 +22,7 @@ $ES_CONTINUOUS = [Convert]::ToUInt32("80000000", 16)
 $ES_SYSTEM_REQUIRED = [uint32]0x00000001
 $ES_DISPLAY_REQUIRED = [uint32]0x00000002
 
-$runName = "ppo_overnight_pathreward_v2_continue"
+$runName = "ppo_overnight_pathreward_v3_retrain_from_100k"
 $totalTimesteps = "300000"
 $evalEvery = "10000"
 $checkpointEvery = "10000"

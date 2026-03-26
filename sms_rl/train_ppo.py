@@ -296,7 +296,6 @@ def main() -> None:
         model.n_epochs = args.n_epochs
         model.gamma = args.gamma
         model.gae_lambda = args.gae_lambda
-        model.clip_range = args.clip_range
         model.ent_coef = args.ent_coef
         model.vf_coef = args.vf_coef
     else:

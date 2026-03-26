@@ -56,6 +56,19 @@ def evaluate_model_with_action_log(
                 "prob_jump",
                 "reward",
                 "progress",
+                "raw_progress",
+                "path_progress",
+                "path_progress_raw",
+                "path_distance",
+                "path_segment_index",
+                "path_distance_to_start",
+                "path_progress_regression_clamped",
+                "path_respawn_detected",
+                "reward_progress",
+                "reward_path_distance",
+                "reward_step_penalty",
+                "reward_finish",
+                "reward_fail",
                 "episode_elapsed_seconds",
                 "mission_finished_raw",
                 "mission_failed_raw",
@@ -88,6 +101,7 @@ def evaluate_model_with_action_log(
                 chosen_action = int(action)
                 obs, reward, terminated, truncated, info = env.step(chosen_action)
                 ep_reward += float(reward)
+                reward_components = info.get("reward_components", {})
                 writer.writerow(
                     [
                         episode_idx,
@@ -100,6 +114,19 @@ def evaluate_model_with_action_log(
                         float(probs[3]),
                         float(reward),
                         float(info.get("progress", 0.0)),
+                        float(info.get("raw_progress", 0.0)),
+                        float(info.get("path_progress", info.get("progress", 0.0))),
+                        float(info.get("path_progress_raw", 0.0)),
+                        float(info.get("path_distance", 0.0)),
+                        float(info.get("path_segment_index", 0.0)),
+                        float(info.get("path_distance_to_start", 0.0)),
+                        float(info.get("path_progress_regression_clamped", 0.0)),
+                        float(info.get("path_respawn_detected", 0.0)),
+                        float(reward_components.get("progress", 0.0)),
+                        float(reward_components.get("path_distance", 0.0)),
+                        float(reward_components.get("step_penalty", 0.0)),
+                        float(reward_components.get("finish", 0.0)),
+                        float(reward_components.get("fail", 0.0)),
                         float(info.get("episode_elapsed_seconds", 0.0)),
                         bool(info.get("mission_finished_raw", False)),
                         bool(info.get("mission_failed_raw", False)),

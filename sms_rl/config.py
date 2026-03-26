@@ -23,6 +23,10 @@ class EpisodeConfig:
     fail_reward: float = -25.0
     progress_reward_scale: float = 1.0
     path_distance_penalty_scale: float = 0.0
+    path_segment_lookahead: int = 2
+    path_backward_tolerance: float = 500.0
+    path_respawn_progress_threshold: float = 5000.0
+    path_respawn_start_distance_threshold: float = 2000.0
     path_waypoints: Tuple[tuple[float, float], ...] = ()
 
 
