@@ -22,17 +22,16 @@ $ES_CONTINUOUS = [Convert]::ToUInt32("80000000", 16)
 $ES_SYSTEM_REQUIRED = [uint32]0x00000001
 $ES_DISPLAY_REQUIRED = [uint32]0x00000002
 
-$runName = "ppo_overnight_pathreward_v2_continue"
-$totalTimesteps = "300000"
+$runName = "ppo_overnight_pathreward_v1_verify"
+$totalTimesteps = "100000"
 $evalEvery = "10000"
 $checkpointEvery = "10000"
 $evalEpisodes = "3"
 $nSteps = "128"
 $actionRepeat = "2"
-$learningRate = "0.0001"
+$learningRate = "0.0003"
 $progressRewardScale = "0.001"
 $pathDistancePenaltyScale = "0.0005"
-$resumeCheckpoint = "C:\Users\justi\Projects\super-mario-sunshine-RL\runs\ppo_overnight_pathreward_v1\checkpoints\ppo_step_100000.zip"
 
 try {
   $awakeFlags = [uint32]($ES_CONTINUOUS -bor $ES_SYSTEM_REQUIRED -bor $ES_DISPLAY_REQUIRED)
@@ -51,7 +50,6 @@ try {
     --max-episode-seconds 45 `
     --progress-reward-scale $progressRewardScale `
     --path-distance-penalty-scale $pathDistancePenaltyScale `
-    --resume-checkpoint $resumeCheckpoint `
     --dolphin-exe $dolphinExe `
     --game-path $gamePath `
     --save-state $saveStatePath `
@@ -62,12 +60,12 @@ try {
     --control-mode vgamepad `
     --capture-backend mss `
     --capture-fps 30 `
-    --post-launch-delay-seconds 0 `
+    --post-launch-delay-seconds 0.5 `
     --post-reset-delay-seconds 0 `
     --startup-forward-seconds 1.0 `
     --startup-forward-magnitude 1.0 `
     --startup-settle-seconds 0.1 `
-    --window-stable-seconds 0 `
+    --window-stable-seconds 0.2 `
     --progress-address $progressAddress `
     --progress-type float `
     --finished-address $finishedAddress `
